@@ -1256,9 +1256,17 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 	px_float visualScale,visualRotation;
 	px_float visualRotationCos,visualRotationSin;
 	px_point visualTranslation;
+#if CONFIG_L2D_PROFILE_FINE
+	long long fine_start_us, fine_vertex_begin_us, fine_stretch_begin_us;
+	long long fine_stretch_total_us=0;
+	fine_start_us=esp_timer_get_time();
+#endif
 
 
 	PX_LiveFrameworkUpdateLayerRenderVerticesUV(pLive,pLayer);
+#if CONFIG_L2D_PROFILE_FINE
+	pLive->frameProfile.uvUpdateUs+=(px_dword)(esp_timer_get_time()-fine_start_us);
+#endif
 
 	/* REALTIME30 forces k=0 below, so keyDirection is never consumed. */
 	keyDirection=PX_POINT2D(0,1);
@@ -1285,12 +1293,19 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 			keyDirection=PX_Point2DNormalization(keyDirection);
 		}
 	}
+#if CONFIG_L2D_PROFILE_FINE
+	fine_start_us=esp_timer_get_time();
+#endif
 	PX_LiveFramework_GetLayerVisualTransform(pLive,pLayer,&visualScale,&visualRotation,&visualTranslation);
 	/* The visual rotation is identical for every vertex in this layer.  Building
 	 * a matrix (and evaluating sin/cos) for every vertex consumed a large share
 	 * of the ESP32-P4 frame budget, especially while head/face axes are active. */
 	visualRotationCos=PX_cos_angle(visualRotation);
 	visualRotationSin=PX_sin_angle(visualRotation);
+#if CONFIG_L2D_PROFILE_FINE
+	pLive->frameProfile.visualTransformUs+=(px_dword)(esp_timer_get_time()-fine_start_us);
+	fine_vertex_begin_us=esp_timer_get_time();
+#endif
 
 	//for each vertex
 	for (i=0;i<pLayer->vertices.size;i++)
@@ -1342,6 +1357,9 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 		resultPosition.y+=plv->currentTranslation.y;
 		resultPosition.z+=plv->currentTranslation.z;
 
+#if CONFIG_L2D_PROFILE_FINE
+		fine_stretch_begin_us=esp_timer_get_time();
+#endif
 		//stretch
 		do 
 		{
@@ -1372,6 +1390,9 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 		} while (0);
 
 
+#if CONFIG_L2D_PROFILE_FINE
+		fine_stretch_total_us+=esp_timer_get_time()-fine_stretch_begin_us;
+#endif
 		//Rotation
 		resultPosition=PX_LiveFrameworkRotatePointCached(resultPosition,
 			pLayer->rel_currentRotationCos, pLayer->rel_currentRotationSin);
@@ -1476,6 +1497,13 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 		}
 		
 	}
+#if CONFIG_L2D_PROFILE_FINE
+	{
+		long long fine_vertex_total_us=esp_timer_get_time()-fine_vertex_begin_us;
+		pLive->frameProfile.stretchUs+=(px_dword)fine_stretch_total_us;
+		pLive->frameProfile.vertexTransformUs+=(px_dword)(fine_vertex_total_us-fine_stretch_total_us);
+	}
+#endif
 }
 
 /* ── 物理更新编排 ──────────────────────────────── */
@@ -1504,6 +1532,9 @@ static px_void PX_LiveFrameworkUpdatePhysical(PX_LiveFramework *plive,px_dword e
 		}
 	}
 
+#if CONFIG_L2D_PROFILE_FINE
+	long long fine_keypoint_begin_us=esp_timer_get_time();
+#endif
 	//LayerUpdate
 	for (i=0;i<plive->layers.size;i++)
 	{
@@ -1514,6 +1545,9 @@ static px_void PX_LiveFrameworkUpdatePhysical(PX_LiveFramework *plive,px_dword e
 		}
 	}
 
+#if CONFIG_L2D_PROFILE_FINE
+	plive->frameProfile.keypointUs+=(px_dword)(esp_timer_get_time()-fine_keypoint_begin_us);
+#endif
 	for (i=0;i<plive->layers.size;i++)
 	{
 		PX_LiveLayer *pLayer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
@@ -1867,6 +1901,13 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 		return;
 	}
 
+#if CONFIG_L2D_PROFILE_FINE
+	plive->frameProfile.keypointUs=0;
+	plive->frameProfile.visualTransformUs=0;
+	plive->frameProfile.stretchUs=0;
+	plive->frameProfile.vertexTransformUs=0;
+	plive->frameProfile.uvUpdateUs=0;
+#endif
 	vm_begin_us=esp_timer_get_time();
 	if (plive->animationMode==PX_LIVE_MODE_REALTIME30)
 	{

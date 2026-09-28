@@ -210,6 +210,11 @@ typedef struct
 {
 	px_dword poseUs;       /* RT30 evaluator, or timeline VM */
 	px_dword physicalUs;   /* physical/vertex update */
+	px_dword keypointUs;   /* fine diagnostic only */
+	px_dword visualTransformUs;
+	px_dword stretchUs;
+	px_dword vertexTransformUs;
+	px_dword uvUpdateUs;
 	px_dword sortUs;       /* draw-list construction and sorting */
 	px_dword drawUs;       /* layer rasterization */
 } PX_LiveFrameworkFrameProfile;

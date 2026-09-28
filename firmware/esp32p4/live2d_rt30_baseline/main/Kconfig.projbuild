@@ -30,6 +30,14 @@ config L2D_CONVERT_CPU
         Phase 2 can override this setting temporarily to measure all four
         backend combinations. The setting controls the normal runtime default.
 
+config L2D_PROFILE_FINE
+    bool "Instrument hierarchy and vertex subphases (diagnostic only)"
+    depends on L2D_PROFILE_TIMING
+    default n
+    help
+        Adds timer calls inside the vertex loop. Its timings are diagnostic
+        workload attribution, not formal benchmark results.
+
 config L2D_PROFILE_DETAIL
     bool "Collect raster workload counters (separate diagnostic build)"
     default n

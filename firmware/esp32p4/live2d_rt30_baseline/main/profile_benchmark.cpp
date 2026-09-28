@@ -29,6 +29,9 @@
 #ifndef CONFIG_L2D_CONVERT_CPU
 #define CONFIG_L2D_CONVERT_CPU 0
 #endif
+#ifndef CONFIG_L2D_PROFILE_FINE
+#define CONFIG_L2D_PROFILE_FINE 0
+#endif
 
 static const char *TAG = "l2d_profile";
 static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
@@ -111,6 +114,7 @@ typedef struct {
     uint32_t display_lock_wait_us, flush_total_us, frame_total_us;
     uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
     uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend, convert_us;
+    uint32_t keypoint_us, visual_transform_us, stretch_us, vertex_transform_us, uv_update_us;
 } sample_t;
 static sample_t *ring;
 static uint32_t next_frame_id;
@@ -165,6 +169,13 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
         out->backend = active_backend;
         out->controller_us = controller_us;
         out->rt30_us = p.poseUs; out->hierarchy_vertex_us = p.physicalUs;
+#if CONFIG_L2D_PROFILE_FINE
+        out->keypoint_us = p.keypointUs;
+        out->visual_transform_us = p.visualTransformUs;
+        out->stretch_us = p.stretchUs;
+        out->vertex_transform_us = p.vertexTransformUs;
+        out->uv_update_us = p.uvUpdateUs;
+#endif
         out->bounds_us = renderer->last_bounds_us;
         out->clear_us = renderer->last_clear_us; out->raster_us = p.drawUs;
         out->convert_us = renderer->last_convert_us;
@@ -317,7 +328,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         "model_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
         "layers=%d\nvertices=%" PRIu32 "\ntriangles=%" PRIu32
         "\ntextures=%d\ntexture_pixels=%" PRIu32 "\naxes=%d\nsampler=fast-nearest\n"
-        "profile_stage=%d\nprofile_mode=timing\n"
+        "profile_stage=%d\nprofile_mode=%s\n"
         "default_clear=%s\ndefault_convert=%s\n"
         "backend_ids=0:PPA/PPA,1:CPU/PPA,2:PPA/CPU,3:CPU/CPU\n"
         "warmup=%d\nmeasure=%d\nrounds=%d\n",
@@ -327,6 +338,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
         live2d_engine_get_realtime_axis_count(engine), CONFIG_L2D_PROFILE_STAGE,
+        CONFIG_L2D_PROFILE_FINE ? "fine_diagnostic" : "timing",
         CONFIG_L2D_CLEAR_CPU ? "CPU" : "PPA",
         CONFIG_L2D_CONVERT_CPU ? "CPU" : "PPA",
         WARMUP, MEASURE, ROUNDS);
@@ -336,7 +348,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "publish_consume_us,ppa_wait_us,ppa_blend_us,panel_submit_us,"
           "ppa_fill_us,ppa_srm_us,ppa_total_us,clear_cache_sync_us,convert_cache_sync_us,"
           "flush_cache_sync_us,cache_sync_total_us,display_lock_wait_us,flush_total_us,frame_total_us,"
-          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend,convert_us\n", csv);
+          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend,convert_us,"
+          "keypoint_us,visual_transform_us,stretch_us,vertex_transform_us,uv_update_us\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
     fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld,0\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
@@ -376,6 +389,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 SUM(ppa_fill_us); SUM(ppa_srm_us); SUM(ppa_total_us);
                 SUM(clear_cache_sync_us); SUM(convert_cache_sync_us); SUM(flush_cache_sync_us);
                 SUM(cache_sync_total_us); SUM(display_lock_wait_us); SUM(flush_total_us); SUM(frame_total_us);
+                SUM(keypoint_us); SUM(visual_transform_us); SUM(stretch_us);
+                SUM(vertex_transform_us); SUM(uv_update_us);
                 SUM(slot_miss); SUM(lock_skip); SUM(deadline_miss);
                 fflush(summary);
                 ESP_LOGI(TAG, "done %s scale=%d round=%d", names[scene], scale, round);
