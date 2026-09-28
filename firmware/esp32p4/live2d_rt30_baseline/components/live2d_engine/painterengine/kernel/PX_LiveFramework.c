@@ -1260,25 +1260,30 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 
 	PX_LiveFrameworkUpdateLayerRenderVerticesUV(pLive,pLayer);
 
-	if (pLayer->child_index[0]==-1)
+	/* REALTIME30 forces k=0 below, so keyDirection is never consumed. */
+	keyDirection=PX_POINT2D(0,1);
+	if (pLive->animationMode!=PX_LIVE_MODE_REALTIME30)
 	{
-		keyDirection=PX_POINT2D(0,1);
-	}
-	else
-	{
-		keyDirection=PX_POINT2D(0,0);
-		for (i=0;i<PX_COUNTOF(pLayer->child_index);i++)
+		if (pLayer->child_index[0]==-1)
 		{
-			px_point v;
-			if (pLayer->child_index[i]==-1)
-			{
-				break;
-			}
-			
-			v=PX_PointNormalization(PX_PointSub(pLayer->currentKeyPoint,PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[i])->currentKeyPoint));
-			keyDirection=PX_Point2DAdd(keyDirection,PX_POINT2D(v.x,v.y));
+			keyDirection=PX_POINT2D(0,1);
 		}
-		keyDirection=PX_Point2DNormalization(keyDirection);
+		else
+		{
+			keyDirection=PX_POINT2D(0,0);
+			for (i=0;i<PX_COUNTOF(pLayer->child_index);i++)
+			{
+				px_point v;
+				if (pLayer->child_index[i]==-1)
+				{
+					break;
+				}
+			
+				v=PX_PointNormalization(PX_PointSub(pLayer->currentKeyPoint,PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[i])->currentKeyPoint));
+				keyDirection=PX_Point2DAdd(keyDirection,PX_POINT2D(v.x,v.y));
+			}
+			keyDirection=PX_Point2DNormalization(keyDirection);
+		}
 	}
 	PX_LiveFramework_GetLayerVisualTransform(pLive,pLayer,&visualScale,&visualRotation,&visualTranslation);
 	/* The visual rotation is identical for every vertex in this layer.  Building
