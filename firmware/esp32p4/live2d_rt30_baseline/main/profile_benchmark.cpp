@@ -23,9 +23,28 @@
 #ifndef CONFIG_L2D_PROFILE_STAGE
 #define CONFIG_L2D_PROFILE_STAGE 0
 #endif
+#ifndef CONFIG_L2D_CLEAR_CPU
+#define CONFIG_L2D_CLEAR_CPU 0
+#endif
+#ifndef CONFIG_L2D_CONVERT_CPU
+#define CONFIG_L2D_CONVERT_CPU 0
+#endif
 
 static const char *TAG = "l2d_profile";
 static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
+
+#if CONFIG_L2D_PROFILE_STAGE == 2
+/* Both PPA clients stay registered; switching only selects existing paths. */
+static bool select_backend(live2d_renderer_t *renderer, int backend) {
+    bool ppa_clear = (backend & 1) == 0;
+    bool ppa_convert = (backend & 2) == 0;
+    if ((ppa_clear && !renderer->ppa_fill_handle) ||
+        (ppa_convert && !renderer->ppa_srm_handle)) return false;
+    renderer->use_ppa_clear = ppa_clear;
+    renderer->use_ppa_convert = ppa_convert;
+    return true;
+}
+#endif
 
 #if CONFIG_L2D_PROFILE_CORRECTNESS
 static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer,
@@ -45,7 +64,15 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
     printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
            "mode=correctness\nscale_q100=100\nL2D_META_END\n",
            L2D_ESP_COMMIT, model_sha256, (unsigned)model_size);
-    fputs("L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok\n", stdout);
+    fputs("L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok,backend\n", stdout);
+    const int backend_count = CONFIG_L2D_PROFILE_STAGE == 2 ? 4 : 1;
+    for (int backend = 0; backend < backend_count; ++backend) {
+#if CONFIG_L2D_PROFILE_STAGE == 2
+        if (!select_backend(renderer, backend)) {
+            ESP_LOGE(TAG, "backend %d unavailable", backend);
+            continue;
+        }
+#endif
     for (const pose_t &pose : poses) {
         live2d_engine_reset_realtime(engine);
         bool ok = true;
@@ -64,9 +91,10 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
             ? esp_rom_crc32_le(0, (const uint8_t *)buffer->render_argb8888, (uint32_t)buffer->render_bytes) : 0;
         uint32_t rgb_crc = render_ret == ESP_OK
             ? esp_rom_crc32_le(0, (const uint8_t *)buffer->frame_rgb565, (uint32_t)buffer->frame_bytes) : 0;
-        printf("L2D_CORRECTNESS,%s,100,%" PRIu32 ",%08" PRIx32 ",%08" PRIx32 ",%d,%d\n",
+        printf("L2D_CORRECTNESS,%s,100,%" PRIu32 ",%08" PRIx32 ",%08" PRIx32 ",%d,%d,%d\n",
                pose.name, buffer->frame_id, argb_crc, rgb_crc,
-               render_ret == ESP_OK, submit_ret == ESP_OK);
+               render_ret == ESP_OK, submit_ret == ESP_OK, backend);
+    }
     }
     puts("L2D_DONE");
     fflush(stdout);
@@ -82,10 +110,11 @@ typedef struct {
     uint32_t clear_cache_sync_us, convert_cache_sync_us, flush_cache_sync_us, cache_sync_total_us;
     uint32_t display_lock_wait_us, flush_total_us, frame_total_us;
     uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
-    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss;
+    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend;
 } sample_t;
 static sample_t *ring;
 static uint32_t next_frame_id;
+static int active_backend;
 enum scenario_t { STATIC, ALL_14_5, ALL_29, EYE_L, EYE_R, NECK, FACE, MOUTH, MULTI, COUNT };
 static const char *const names[] = {"STATIC", "ALL_14_5", "ALL_29", "EYE_L_SWEEP",
     "EYE_R_SWEEP", "NECK_SWEEP", "FACE_SWEEP", "MOUTH_SWEEP", "MULTI_AXIS"};
@@ -133,6 +162,7 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
         *out = {};
         out->frame_id = id; out->round = round; out->frame = frame;
         out->scenario = scene; out->scale_q100 = scale;
+        out->backend = active_backend;
         out->controller_us = controller_us;
         out->rt30_us = p.poseUs; out->hierarchy_vertex_us = p.physicalUs;
         out->bounds_us = renderer->last_bounds_us;
@@ -181,8 +211,8 @@ static void summary_metric(FILE *f, uint32_t *scratch, scenario_t scene, int sca
     uint32_t p95 = scratch[(MEASURE*95+99)/100-1];
     uint32_t p99 = scratch[(MEASURE*99+99)/100-1];
     fprintf(f, "L2D_SUMMARY,%s,%d,%d,%s,%d,%.2f,%" PRIu32 ",%" PRIu32 ",%" PRIu32
-            ",%" PRIu32 ",%" PRIu32 "\n", names[scene], scale, round, metric,
-            MEASURE, avg, p50, p95, p99, scratch[0], scratch[MEASURE-1]);
+            ",%" PRIu32 ",%" PRIu32 ",%d\n", names[scene], scale, round, metric,
+            MEASURE, avg, p50, p95, p99, scratch[0], scratch[MEASURE-1], active_backend);
     if (strcmp(metric, "producer_total_us") == 0 || strcmp(metric, "raster_us") == 0)
         ESP_LOGI(TAG, "%s scale=%d round=%d %s avg=%.0f p95=%" PRIu32
                  " p99=%" PRIu32 " max=%" PRIu32, names[scene], scale, round,
@@ -282,11 +312,13 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         "idf=%s\nchip=ESP32-P4\ncpu_mhz=%d\npsram_mhz=%d\n"
         "optimization=-O2\nrender_task=core0,priority6\nlvgl_task=core0,priority4\n"
         "canvas=%dx%d\nslot=none,synchronous ARGB+RGB565 buffers\n"
-        "display=direct panel RGB565\nppa=fill+SRM,blocking,blend unused\n"
+        "display=direct panel RGB565\nppa=fill+SRM clients,blocking,blend unused\n"
         "model_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
         "layers=%d\nvertices=%" PRIu32 "\ntriangles=%" PRIu32
         "\ntextures=%d\ntexture_pixels=%" PRIu32 "\naxes=%d\nsampler=fast-nearest\n"
         "profile_stage=%d\nprofile_mode=timing\n"
+        "default_clear=%s\ndefault_convert=%s\n"
+        "backend_ids=0:PPA/PPA,1:CPU/PPA,2:PPA/CPU,3:CPU/CPU\n"
         "warmup=%d\nmeasure=%d\nrounds=%d\n",
         L2D_ESP_COMMIT, L2D_PC_COMMIT, esp_get_idf_version(),
         CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, CONFIG_SPIRAM_SPEED,
@@ -294,6 +326,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
         live2d_engine_get_realtime_axis_count(engine), CONFIG_L2D_PROFILE_STAGE,
+        CONFIG_L2D_CLEAR_CPU ? "CPU" : "PPA",
+        CONFIG_L2D_CONVERT_CPU ? "CPU" : "PPA",
         WARMUP, MEASURE, ROUNDS);
     fputs("L2D_META_END\n", metadata);
     fputs("L2D_FRAME_HEADER,frame_id,scenario,scale_q100,round,frame,slot_wait_us,controller_us,rt30_us,"
@@ -301,12 +335,21 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "publish_consume_us,ppa_wait_us,ppa_blend_us,panel_submit_us,"
           "ppa_fill_us,ppa_srm_us,ppa_total_us,clear_cache_sync_us,convert_cache_sync_us,"
           "flush_cache_sync_us,cache_sync_total_us,display_lock_wait_us,flush_total_us,frame_total_us,"
-          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss\n", csv);
-    fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max\n", summary);
-    fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld\n",
+          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend\n", csv);
+    fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
+    fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld,0\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
             (long long)load_us, (long long)load_us, (long long)load_us);
     ESP_LOGI(TAG, "profile suite: stage=%d rounds=%d frames=%d", CONFIG_L2D_PROFILE_STAGE, ROUNDS, MEASURE);
+    const int backend_count = CONFIG_L2D_PROFILE_STAGE == 2 ? 4 : 1;
+    for (int backend = 0; backend < backend_count; ++backend) {
+#if CONFIG_L2D_PROFILE_STAGE == 2
+        if (!select_backend(renderer, backend)) {
+            ESP_LOGE(TAG, "backend %d unavailable", backend);
+            continue;
+        }
+#endif
+        active_backend = backend;
     for (int scale : {100}) {
         live2d_engine_set_render_scale(engine, scale/100.0f);
         for (int scene_num = 0; scene_num < COUNT; ++scene_num) {
@@ -337,6 +380,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 ESP_LOGI(TAG, "done %s scale=%d round=%d", names[scene], scale, round);
             }
         }
+    }
     }
     free(ring); free(scratch); ring = NULL;
     printf("L2D_DONE\n");

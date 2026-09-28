@@ -16,6 +16,20 @@ config L2D_PROFILE_CORRECTNESS
         This independent mode renders fixed poses and computes CRC after each frame.
         It must not be used for timing benchmarks.
 
+config L2D_CLEAR_CPU
+    bool "Use CPU memset for ARGB clear in normal rendering"
+    default n
+    help
+        Phase 2 can override this setting temporarily to measure all four
+        backend combinations. The setting controls the normal runtime default.
+
+config L2D_CONVERT_CPU
+    bool "Use CPU ARGB8888 to RGB565 conversion in normal rendering"
+    default n
+    help
+        Phase 2 can override this setting temporarily to measure all four
+        backend combinations. The setting controls the normal runtime default.
+
 config L2D_PROFILE_DETAIL
     bool "Collect raster workload counters (separate diagnostic build)"
     default n

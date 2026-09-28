@@ -19,6 +19,7 @@
 #include "esp_cache.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "live2d_renderer";
 
@@ -389,6 +390,10 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
         ESP_LOGW(TAG, "PPA fill unavailable for transparent clear (%s), using CPU clear",
                  esp_err_to_name(fill_ret));
     }
+#if CONFIG_L2D_CLEAR_CPU
+    renderer->use_ppa_clear = false;
+    ESP_LOGI(TAG, "CPU transparent clear selected by config");
+#endif
 
     if (!buffer->frame_rgb565) {
         ESP_LOGI(TAG,
@@ -413,6 +418,10 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
     esp_err_t ret = ppa_register_client(&ppa_client_config, &renderer->ppa_srm_handle);
     if (ret == ESP_OK) {
         renderer->use_ppa_convert = true;
+#if CONFIG_L2D_CONVERT_CPU
+        renderer->use_ppa_convert = false;
+        ESP_LOGI(TAG, "CPU RGB565 conversion selected by config");
+#endif
         ESP_LOGI(TAG,
                  "Renderer initialized: %dx%d ARGB8888 -> RGB565 via PPA SRM, rgb_swap=%d, byte_swap=%d, source block=%dx%d@(%d,%d)",
                  buffer->width, buffer->height,
