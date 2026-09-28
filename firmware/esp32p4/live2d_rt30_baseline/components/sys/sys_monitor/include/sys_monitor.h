@@ -12,13 +12,13 @@
 extern "C" {
 #endif
 
-/** 启动系统监控。创建每个核心的空闲计数任务并开始校准。在繁重任务饱和核心之前调用一次。 */
+/** 启动系统监控。每秒读取 FreeRTOS 每核 Idle 任务运行时间，无需校准。 */
 esp_err_t sys_monitor_start(void);
 
 /** 关联 LVGL 显示设备用于 FPS 追踪。注册 LV_EVENT_RENDER_READY 回调以统计实际显示刷新次数。 */
 void sys_monitor_attach_display(lv_display_t *disp);
 
-/** 获取指定核心（0 或 1）的最新 CPU 使用率。返回 -1 表示尚无读数，否则返回 0-100（%）。 */
+/** 获取指定核心最近 1 秒非 Idle 时间占比。返回 -1 表示尚无读数，否则返回 0-100（%）。 */
 int sys_monitor_get_cpu_usage(int core);
 
 /** 获取最新 FPS 值（乘以 10，例如 245 表示 24.5 fps）。返回 -1 表示尚未计算出 FPS。 */

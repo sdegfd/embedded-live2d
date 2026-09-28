@@ -3,9 +3,9 @@
  * @brief CPU使用率和FPS监控实现
  *
  * 本模块实现系统性能监控功能，包括：
- * - 双核CPU使用率测量（通过最低优先级空闲任务计数）
+ * - 双核CPU使用率测量（FreeRTOS 每核 Idle 任务运行时间）
  * - LVGL渲染帧率（FPS）统计
- * 每秒钟更新一次读数，CPU使用率通过空闲任务计数的比例推算。
+ * 每秒钟更新一次读数，使用相邻采样窗口内的空闲时间计算占用率。
  */
 
 #include "sys_monitor.h"
@@ -20,7 +20,6 @@
 static const char *TAG = "sys_monitor";    /**< 日志标签 */
 
 #define MONITOR_UPDATE_INTERVAL_US 1000000  /**< 监控更新间隔：1秒 */
-#define MONITOR_CPU_IDLE_STACK     1024     /**< 空闲测量任务栈大小 */
 
 /* ── 任务栈水位监测注册表 ─────────────────────────── */
 
@@ -50,14 +49,11 @@ static const char *const s_default_task_names[] = {
     "sys_mon_log",     /* 4K，本打印任务 */
 };
 
-/* ── 每核空闲计数器 ────────────────────────────── */
-
-static volatile uint32_t s_idle_ctr[2];   /**< 空闲任务计数器（volatile防止编译器优化） */
-static TaskHandle_t       s_idle_tasks[2]; /**< 空闲任务句柄 */
-static uint32_t           s_prev_idle[2];  /**< 上次空闲计数值 */
-static uint32_t           s_max_idle_rate[2]; /**< 观测到的最大空闲速率 */
-static int64_t            s_last_cpu_us;   /**< 上次CPU读数更新时间戳 */
-static int                s_cpu_usage[2] = {-1, -1}; /**< CPU使用率百分比 */
+/* FreeRTOS 运行时间计数器与 esp_timer 均以微秒计时。仅监控任务写入，
+ * render/LVGL 任务只读取缓存值，避免跨核采样状态竞争。 */
+static configRUN_TIME_COUNTER_TYPE s_prev_idle_us[2];
+static int64_t s_last_cpu_us;
+static volatile int s_cpu_usage[2] = {-1, -1};
 
 /* ── FPS跟踪 ──────────────────────────────────────── */
 
@@ -66,18 +62,22 @@ static uint32_t           s_last_render_count; /**< 上次FPS读数时的渲染�
 static int64_t            s_last_fps_us;      /**< 上次FPS更新时间戳 */
 static int                s_fps_x10 = -1;     /**< FPS值（10倍，即FPS*10） */
 
-/* ── 空闲测量任务（优先级0，每核一个） ─── */
-
-/** 空闲测量任务：持续自增计数器以估算CPU空闲率。 */
-static void idle_measure_task(void *arg)
+/* 每秒采样一次。CPU1 上运行本任务，使 CPU1 Idle 在采样前发生切换，
+ * FreeRTOS 才会把当前运行段计入其累计运行时间。CPU0 渲染任务按帧切换。 */
+static void sample_cpu_usage(void)
 {
-    uint32_t core = (uint32_t)arg;
-    while (1) {
-        for (int i = 0; i < 64; ++i) {
-            s_idle_ctr[core]++;
-        }
-        vTaskDelay(1);
+    int64_t now = esp_timer_get_time();
+    uint64_t elapsed_us = (uint64_t)(now - s_last_cpu_us);
+    if (elapsed_us == 0) return;
+
+    for (int core = 0; core < CONFIG_FREERTOS_NUMBER_OF_CORES; ++core) {
+        configRUN_TIME_COUNTER_TYPE idle_now = ulTaskGetIdleRunTimeCounterForCore(core);
+        uint64_t idle_us = (uint64_t)(idle_now - s_prev_idle_us[core]);
+        if (idle_us > elapsed_us) idle_us = elapsed_us;
+        s_cpu_usage[core] = (int)((100 * (elapsed_us - idle_us) + elapsed_us / 2) / elapsed_us);
+        s_prev_idle_us[core] = idle_now;
     }
+    s_last_cpu_us = now;
 }
 
 /* ── LVGL渲染回调 ──────────────────────────────── */
@@ -101,8 +101,13 @@ static TaskHandle_t s_log_task = NULL;  /**< 打印任务句柄 */
 static void monitor_log_task(void *arg)
 {
     (void)arg;
+    int64_t last_log_us = esp_timer_get_time();
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(MONITOR_LOG_INTERVAL_MS));
+        vTaskDelay(pdMS_TO_TICKS(MONITOR_UPDATE_INTERVAL_US / 1000));
+        sample_cpu_usage();
+        int64_t now = esp_timer_get_time();
+        if (now - last_log_us < MONITOR_LOG_INTERVAL_MS * 1000LL) continue;
+        last_log_us = now;
         int cpu0 = sys_monitor_get_cpu_usage(0);
         int fps  = sys_monitor_get_fps_x10();
 #if CONFIG_FREERTOS_NUMBER_OF_CORES > 1
@@ -125,38 +130,24 @@ static void monitor_log_task(void *arg)
 
 /* ── 公共API ────────────────────────────────────────── */
 
-/** 启动CPU监控：在每个核心上创建最低优先级的空闲测量任务。 */
+/** 启动CPU监控：读取 FreeRTOS Idle 任务运行时间，无需额外空闲任务或校准。 */
 esp_err_t sys_monitor_start(void)
 {
-    int num_cores = CONFIG_FREERTOS_NUMBER_OF_CORES;
-    for (int core = 0; core < num_cores; core++) {
-        s_idle_ctr[core]    = 0;
-        s_prev_idle[core]   = 0;
-        s_max_idle_rate[core] = 0;
-        s_cpu_usage[core]   = -1;
-
-        BaseType_t ret = xTaskCreatePinnedToCore(
-            idle_measure_task,
-            core == 0 ? "sys_mon0" : "sys_mon1",
-            MONITOR_CPU_IDLE_STACK,
-            (void *)(uint32_t)core,
-            0,                        /* 空闲优先级 */
-            &s_idle_tasks[core],
-            core);
-        if (ret != pdPASS) {
-            ESP_LOGW(TAG, "Failed to create idle task on core %d", core);
-            s_idle_tasks[core] = NULL;
-        }
+    for (int core = 0; core < CONFIG_FREERTOS_NUMBER_OF_CORES; ++core) {
+        s_prev_idle_us[core] = ulTaskGetIdleRunTimeCounterForCore(core);
+        s_cpu_usage[core] = -1;
     }
 
     s_last_cpu_us = esp_timer_get_time();
     s_last_fps_us = s_last_cpu_us;
 
     /* 启动周期性 CPU/FPS 串口打印任务 */
-    (void)xTaskCreate(monitor_log_task, "sys_mon_log",
-                      MONITOR_LOG_STACK, NULL, 1, &s_log_task);
+    BaseType_t ret = xTaskCreatePinnedToCore(monitor_log_task, "sys_mon_log",
+                      MONITOR_LOG_STACK, NULL, 1, &s_log_task,
+                      CONFIG_FREERTOS_NUMBER_OF_CORES > 1 ? 1 : 0);
+    if (ret != pdPASS) return ESP_ERR_NO_MEM;
 
-    ESP_LOGI(TAG, "CPU monitor started (per-core idle tasks)");
+    ESP_LOGI(TAG, "CPU monitor started (FreeRTOS idle run time, 1 s windows)");
     return ESP_OK;
 }
 
@@ -172,36 +163,7 @@ void sys_monitor_attach_display(lv_display_t *disp)
 /** 获取指定CPU核心的使用率百分比（0-100），-1表示不可用。*/
 int sys_monitor_get_cpu_usage(int core)
 {
-    if (core < 0 || core > 1) return -1;
-    if (!s_idle_tasks[core]) return -1;
-
-    /* 间隔足够时间后才更新CPU读数 */
-    int64_t now = esp_timer_get_time();
-    int64_t elapsed = now - s_last_cpu_us;
-
-    if (elapsed >= MONITOR_UPDATE_INTERVAL_US) {
-        float sec = (float)elapsed / 1000000.0f;
-
-        int num_cores = CONFIG_FREERTOS_NUMBER_OF_CORES;
-        for (int c = 0; c < num_cores; c++) {
-            if (!s_idle_tasks[c]) continue;
-
-            uint32_t cur   = s_idle_ctr[c];
-            uint32_t delta = cur - s_prev_idle[c];
-            uint32_t rate  = (uint32_t)((float)delta / sec);
-
-            if (rate > s_max_idle_rate[c]) s_max_idle_rate[c] = rate;
-
-            if (s_max_idle_rate[c] > 0) {
-                int u = (int)(100.0f * (1.0f - (float)rate / (float)s_max_idle_rate[c]));
-                if (u < 0) u = 0;
-                if (u > 100) u = 100;
-                s_cpu_usage[c] = u;
-            }
-            s_prev_idle[c] = cur;
-        }
-        s_last_cpu_us = now;
-    }
+    if (core < 0 || core >= CONFIG_FREERTOS_NUMBER_OF_CORES) return -1;
     return s_cpu_usage[core];
 }
 
