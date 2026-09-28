@@ -110,7 +110,7 @@ typedef struct {
     uint32_t clear_cache_sync_us, convert_cache_sync_us, flush_cache_sync_us, cache_sync_total_us;
     uint32_t display_lock_wait_us, flush_total_us, frame_total_us;
     uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
-    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend;
+    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend, convert_us;
 } sample_t;
 static sample_t *ring;
 static uint32_t next_frame_id;
@@ -167,6 +167,7 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
         out->rt30_us = p.poseUs; out->hierarchy_vertex_us = p.physicalUs;
         out->bounds_us = renderer->last_bounds_us;
         out->clear_us = renderer->last_clear_us; out->raster_us = p.drawUs;
+        out->convert_us = renderer->last_convert_us;
         out->clear_cache_sync_us = renderer->last_clear_sync_us;
         out->convert_cache_sync_us = renderer->last_convert_sync_us;
         out->flush_cache_sync_us = flush->last_cache_sync_us;
@@ -335,7 +336,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "publish_consume_us,ppa_wait_us,ppa_blend_us,panel_submit_us,"
           "ppa_fill_us,ppa_srm_us,ppa_total_us,clear_cache_sync_us,convert_cache_sync_us,"
           "flush_cache_sync_us,cache_sync_total_us,display_lock_wait_us,flush_total_us,frame_total_us,"
-          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend\n", csv);
+          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend,convert_us\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
     fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld,0\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
@@ -369,7 +370,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 for (int i = 0; i < MEASURE; ++i) write_row(csv, &ring[i]);
                 fflush(csv);
                 SUM(slot_wait_us); SUM(controller_us); SUM(rt30_us); SUM(hierarchy_vertex_us);
-                SUM(bounds_us); SUM(clear_us); SUM(raster_us); SUM(cache_sync_us);
+                SUM(bounds_us); SUM(clear_us); SUM(raster_us); SUM(convert_us); SUM(cache_sync_us);
                 SUM(producer_total_us); SUM(publish_consume_us); SUM(ppa_wait_us);
                 SUM(ppa_blend_us); SUM(panel_submit_us); SUM(frame_drop);
                 SUM(ppa_fill_us); SUM(ppa_srm_us); SUM(ppa_total_us);
