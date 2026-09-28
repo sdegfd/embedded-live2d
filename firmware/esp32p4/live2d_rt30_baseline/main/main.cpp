@@ -74,6 +74,9 @@ typedef struct {
     uint64_t convert_us;
     uint64_t flush_us;
     uint64_t total_us;
+    uint64_t budget_remain_us;
+    uint64_t actual_wait_us;
+    uint64_t frame_period_us;
     uint32_t max_total_us;
 } baseline_stats_t;
 
@@ -421,9 +424,14 @@ static void render_task(void *arg)
         stats.total_us += total_us;
         if (total_us > stats.max_total_us) stats.max_total_us = total_us;
         if (total_us > FRAME_US) stats.over_budget_frames++;
+        stats.budget_remain_us += total_us < FRAME_US ? FRAME_US - total_us : 0;
         drive_frame++;
 
+        int64_t wait_begin = esp_timer_get_time();
+        delay_until_next_frame(frame_begin, frame_end);
         int64_t now = esp_timer_get_time();
+        stats.actual_wait_us += (uint32_t)(now - wait_begin);
+        stats.frame_period_us += (uint32_t)(now - frame_begin);
         if (now - stats_begin >= STATS_US && stats.frames > 0) {
             float fps = ((float)stats.frames * 1000000.0f) / (float)(now - stats_begin);
             ESP_LOGI(TAG,
@@ -432,7 +440,9 @@ static void render_task(void *arg)
                      " avg_us axis=%" PRIu32 " clear=%" PRIu32 " fill=%" PRIu32 " sync=%" PRIu32
                      " pose=%" PRIu32 " physical=%" PRIu32 " sort=%" PRIu32 " draw=%" PRIu32
                      " engine=%" PRIu32 " render=%" PRIu32 " convert=%" PRIu32 " flush=%" PRIu32
-                     " total=%" PRIu32 " max_total=%" PRIu32 " cpu0=%d cpu1=%d",
+                     " total=%" PRIu32 " budget_remain=%" PRIu32
+                     " actual_wait=%" PRIu32 " period=%" PRIu32
+                     " max_total=%" PRIu32 " cpu0=%d cpu1=%d",
                      window, (double)fps, eye_s, neck_s, face_s, mouth_s, stats.frames,
                      stats.over_budget_frames, stats.batch_failures,
                      (uint32_t)(stats.axis_us / stats.frames),
@@ -447,13 +457,16 @@ static void render_task(void *arg)
                      (uint32_t)(stats.render_us / stats.frames),
                      (uint32_t)(stats.convert_us / stats.frames),
                      (uint32_t)(stats.flush_us / stats.frames),
-                     (uint32_t)(stats.total_us / stats.frames), stats.max_total_us,
+                     (uint32_t)(stats.total_us / stats.frames),
+                     (uint32_t)(stats.budget_remain_us / stats.frames),
+                     (uint32_t)(stats.actual_wait_us / stats.frames),
+                     (uint32_t)(stats.frame_period_us / stats.frames),
+                     stats.max_total_us,
                      sys_monitor_get_cpu_usage(0), sys_monitor_get_cpu_usage(1));
             memset(&stats, 0, sizeof(stats));
             stats_begin = now;
             window++;
         }
-        delay_until_next_frame(frame_begin, frame_end);
     }
 }
 
