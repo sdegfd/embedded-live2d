@@ -1,0 +1,41 @@
+# 编译产物。源码用 build_msvc.bat 可以重新生成。
+*.obj
+*.exe
+*.ilk
+*.pdb
+*.lib
+*.exp
+*.idb
+*.pch
+*.res
+*.tlog
+*.lastbuildstate
+*.recipe
+
+# 构建目录和本机归档的旧程序
+**/build/
+**/bench_build/
+**/rt30_obj/
+**/CMakeFiles/
+**/Debug/
+**/Release/
+**/x64/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.slnx
+
+# 压缩包和系统标记
+*.zip
+*Zone.Identifier
+Thumbs.db
+Desktop.ini
+
+# 本机编辑器设置里有个人工具链路径
+.vscode/settings.json
+
+# 旧的 PainterEngine_make 整包，约 450MB，不是当前工程
+/PainterEngine_make/

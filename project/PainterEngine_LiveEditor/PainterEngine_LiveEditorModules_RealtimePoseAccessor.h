@@ -1,0 +1,93 @@
+#ifndef PX_LIVEEDITOR_MODULE_REALTIMEPOSEACCESSOR_H
+#define PX_LIVEEDITOR_MODULE_REALTIMEPOSEACCESSOR_H
+
+#include "runtime/PainterEngine_Runtime.h"
+#include "kernel/PX_LiveRealtime.h"
+
+#define PX_LIVEEDITOR_REALTIME_PSRAM_LIMIT_BYTES (6u * 1024u * 1024u)
+#define PX_LIVEEDITOR_REALTIME_BASELINE_BYTES    (5u * 1024u * 1024u)
+
+typedef struct
+{
+	px_char id[PX_LIVE_REALTIME_AXIS_ID_MAX_LEN];
+	px_int runtimeHandle;
+	px_uchar middleKeyIndex;
+	px_uchar defaultSampleIndex;
+	px_uchar selectedKeySlot;
+	px_uchar sampleIndex;
+	px_uint16 weightQ15;
+	px_bool authoringAvailable;
+	px_bool dirty;
+	px_bool baked;
+	px_int meshDegenerate;
+	px_int meshFlipped;
+	px_int meshUvOutside;
+	px_uint16 bindingCount;
+	px_uint32 vertexIndexCount;
+	PX_LiveRealtimeBindingDesc *bindings;
+	px_uint16 *vertexIndices;
+	PX_LiveRealtimeBindingPose *keyBindingPoses[3];
+	px_point *keyVertexDeltas[3];
+}PX_LiveEditorRealtimeAxisAuthoring;
+
+typedef struct
+{
+	px_memorypool *mp;
+	PX_LiveFramework *plive;
+	PX_LiveEditorRealtimeAxisAuthoring axes[PX_LIVE_REALTIME_MAX_AXES];
+	px_int axisCount;
+	px_int selectedAxis;
+	px_int selectedLayer;
+	px_dword revision;
+	px_bool entered;
+	px_bool authoringPoseActive;
+	px_bool blendPreviewActive;
+}PX_LiveEditorRealtimePoseAccessor;
+
+px_bool PX_LiveEditorRealtimePoseAccessorInitialize(PX_LiveEditorRealtimePoseAccessor *accessor,px_memorypool *mp,PX_LiveFramework *plive);
+px_bool PX_LiveEditorRealtimePoseAccessorInitializePreview(PX_LiveEditorRealtimePoseAccessor *accessor,px_memorypool *mp,PX_LiveFramework *plive);
+px_void PX_LiveEditorRealtimePoseAccessorFree(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_void PX_LiveEditorRealtimePoseAccessorReload(PX_LiveEditorRealtimePoseAccessor *accessor);
+
+px_int PX_LiveEditorRealtimePoseAccessorGetAxisCount(const PX_LiveEditorRealtimePoseAccessor *accessor);
+PX_LiveEditorRealtimeAxisAuthoring *PX_LiveEditorRealtimePoseAccessorGetAxis(PX_LiveEditorRealtimePoseAccessor *accessor,px_int axisIndex);
+const PX_LiveEditorRealtimeAxisAuthoring *PX_LiveEditorRealtimePoseAccessorGetAxisConst(const PX_LiveEditorRealtimePoseAccessor *accessor,px_int axisIndex);
+px_int PX_LiveEditorRealtimePoseAccessorGetSelectedAxis(const PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorSelectAxis(PX_LiveEditorRealtimePoseAccessor *accessor,px_int axisIndex);
+
+px_int PX_LiveEditorRealtimePoseAccessorGetSelectedLayer(const PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorSelectLayer(PX_LiveEditorRealtimePoseAccessor *accessor,px_int layerIndex);
+px_bool PX_LiveEditorRealtimePoseAccessorApplySelectedKey(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorGetSelectedLayerTransform(PX_LiveEditorRealtimePoseAccessor *accessor,px_point *translation,px_float *rotation,px_float *stretch);
+px_bool PX_LiveEditorRealtimePoseAccessorSetSelectedLayerTransform(PX_LiveEditorRealtimePoseAccessor *accessor,px_float translationX,px_float translationY,px_float rotation,px_float stretch);
+px_bool PX_LiveEditorRealtimePoseAccessorResetSelectedLayerTransform(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorIsSelectedKeyEditable(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorGetSelectedVertexDelta(PX_LiveEditorRealtimePoseAccessor *accessor,px_int vertexIndex,px_point *delta);
+px_bool PX_LiveEditorRealtimePoseAccessorSetSelectedVertexDelta(PX_LiveEditorRealtimePoseAccessor *accessor,px_int vertexIndex,px_point delta);
+px_bool PX_LiveEditorRealtimePoseAccessorGetSelectedSubtreeRotation(PX_LiveEditorRealtimePoseAccessor *accessor,px_float *rotation);
+px_bool PX_LiveEditorRealtimePoseAccessorSetSelectedSubtreeRotation(PX_LiveEditorRealtimePoseAccessor *accessor,px_float rotation);
+px_bool PX_LiveEditorRealtimePoseAccessorGetSelectedLayerTexture(PX_LiveEditorRealtimePoseAccessor *accessor,px_int *textureIndex);
+px_bool PX_LiveEditorRealtimePoseAccessorSetSelectedLayerTexture(PX_LiveEditorRealtimePoseAccessor *accessor,px_int textureIndex);
+px_bool PX_LiveEditorRealtimePoseAccessorGetSelectedLayerImpulse(PX_LiveEditorRealtimePoseAccessor *accessor,px_point *impulse);
+px_bool PX_LiveEditorRealtimePoseAccessorSetSelectedLayerImpulse(PX_LiveEditorRealtimePoseAccessor *accessor,px_point impulse);
+px_bool PX_LiveEditorRealtimePoseAccessorCommitChanges(PX_LiveEditorRealtimePoseAccessor *accessor);
+
+px_bool PX_LiveEditorRealtimePoseAccessorCreateAxis(PX_LiveEditorRealtimePoseAccessor *accessor,const px_char id[]);
+px_bool PX_LiveEditorRealtimePoseAccessorDeleteSelectedAxis(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorSetMiddle(PX_LiveEditorRealtimePoseAccessor *accessor,px_int middleKeyIndex);
+px_bool PX_LiveEditorRealtimePoseAccessorSetDefaultKeySlot(PX_LiveEditorRealtimePoseAccessor *accessor,px_int keySlot);
+px_bool PX_LiveEditorRealtimePoseAccessorSelectKeySlot(PX_LiveEditorRealtimePoseAccessor *accessor,px_int keySlot);
+px_bool PX_LiveEditorRealtimePoseAccessorCaptureSelectedKey(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorCopyDefaultToSelectedKey(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorBakeSelectedAxis(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorHasUnbakedEdits(const PX_LiveEditorRealtimePoseAccessor *accessor);
+
+px_bool PX_LiveEditorRealtimePoseAccessorEnter(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_void PX_LiveEditorRealtimePoseAccessorLeave(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorSetPreview(PX_LiveEditorRealtimePoseAccessor *accessor,px_int sampleIndex,px_uint16 weightQ15);
+px_bool PX_LiveEditorRealtimePoseAccessorResetPreview(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_bool PX_LiveEditorRealtimePoseAccessorApplyBlendPreview(PX_LiveEditorRealtimePoseAccessor *accessor,const px_uchar sampleIndices[],const px_uint16 weightsQ15[],px_int axisCount);
+px_bool PX_LiveEditorRealtimePoseAccessorEndBlendPreview(PX_LiveEditorRealtimePoseAccessor *accessor);
+px_void PX_LiveEditorRealtimePoseAccessorGetMemoryStats(PX_LiveEditorRealtimePoseAccessor *accessor,PX_LiveRealtimeMemoryStats *stats);
+
+#endif
