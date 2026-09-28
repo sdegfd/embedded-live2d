@@ -1,4 +1,4 @@
-esp_commit=uncommitted-worktree
+esp_commit=2b2210f6c16e15f8c399744355a810a4f391c5a8
 live2d_commit=78fc634
 idf=v5.5.2
 chip=ESP32-P4
@@ -13,7 +13,7 @@ display=direct panel RGB565
 ppa=fill+SRM,blocking,blend unused
 model_sha256=786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b
 model_size=798660
-model_load_us=263288
+model_load_us=263477
 layers=11
 vertices=227
 triangles=257

@@ -28,7 +28,7 @@ def main() -> int:
     paths = {"L2D_FRAME": args.out / "frames.csv",
              "L2D_SUMMARY": args.out / "summary.csv",
              "L2D_DETAIL": args.out / "detail.csv"}
-    files = {key: path.open("w", encoding="utf-8", newline="") for key, path in paths.items()}
+    files = {}
     raw = (args.out / "serial.log").open("wb") if args.port else None
     metadata = []
     in_meta = False
@@ -68,12 +68,16 @@ def main() -> int:
             if line == "L2D_DONE":
                 done = True
                 break
-            for key, file in files.items():
+            for key, path in paths.items():
                 if line.startswith(key + "_HEADER,"):
-                    file.write(line.split(",", 1)[1] + "\n")
+                    if key not in files:
+                        files[key] = path.open("w", encoding="utf-8", newline="")
+                    files[key].write(line.split(",", 1)[1] + "\n")
                     break
                 if line.startswith(key + ","):
-                    file.write(line.split(",", 1)[1] + "\n")
+                    if key not in files:
+                        files[key] = path.open("w", encoding="utf-8", newline="")
+                    files[key].write(line.split(",", 1)[1] + "\n")
                     counts[key] += 1
                     break
         (args.out / "metadata.txt").write_text("\n".join(metadata) + "\n", encoding="utf-8")

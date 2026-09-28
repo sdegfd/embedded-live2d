@@ -1,6 +1,6 @@
 # PainterEngine Live2D → ESP32-P4 移植与 profiling 报告
 
-日期：2026-09-28。PC 引擎基线：`78fc6347891611616dd75b16e7718aa8ba7a75e2`。ESP 源码目录：`firmware/esp32p4/live2d_rt30_baseline`。本次采样来自提交前的同一源码树，设备 metadata 因此写为 `uncommitted-worktree`；提交哈希以本报告所在的 Git 提交为准。
+日期：2026-09-28。PC 引擎基线：`78fc6347891611616dd75b16e7718aa8ba7a75e2`。ESP 源码目录：`firmware/esp32p4/live2d_rt30_baseline`。本次正式 timing 采样运行的 ESP 固件提交：`2b2210f6c16e15f8c399744355a810a4f391c5a8`，与设备 metadata 一致。
 
 ## 工程与移植范围
 
@@ -19,7 +19,7 @@ ESP32-P4 Rev 1.3，双核 FreeRTOS 配置；Live2D render 任务固定 CPU0/优�
 
 ## 模型与采集设置
 
-设备 `/sdcard/esp.live`：798660 字节，SHA256 `786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b`，与仓库 `project/esp.live` 一致。模型为 11 层、227 顶点、257 三角形、12 纹理、4 个 RT30 轴（left_eye/right_eye/neck/face）。采样器为 `fast-nearest`，软件光栅；PPA 用于 FILL 和 SRM 格式转换。加载耗时 263288 μs。模型由使用者自行拷入 SD，固件只读取，不输出模型文件。
+设备 `/sdcard/esp.live`：798660 字节，SHA256 `786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b`，与仓库 `project/esp.live` 一致。模型为 11 层、227 顶点、257 三角形、12 纹理、4 个 RT30 轴（left_eye/right_eye/neck/face）。采样器为 `fast-nearest`，软件光栅；PPA 用于 FILL 和 SRM 格式转换。加载耗时 263477 μs。模型由使用者自行拷入 SD，固件只读取，不输出模型文件。
 
 按用户最新要求，正式采样改为约 30 秒短测：现有 4 轴模型运行 8 个场景 × 1.0/0.75 scale，每组预热 5 帧、记录 45 帧，总计 720 帧，约 27 秒；因模型无嘴轴，跳过嘴轴场景。逐轴场景在 50 帧内完成 0→29→0；multi-axis 使用确定性相位。P99 在每组仅 45 帧的条件下接近最大值，适合回归和发现异常，不作为稳定尾延迟结论。长测配置仍可通过 `L2D_PROFILE_LONG_RUN` 显式启用，但本轮未运行。
 
@@ -27,16 +27,16 @@ PC 使用 [串口捕获脚本](../tools/capture_l2d_profile.py) 保存原始数�
 
 | scale | 场景 | producer avg | P50 | P95 | P99 | raster avg |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 1.0 | STATIC | 26404 | 26398 | 26623 | 26667 | 18370 |
-| 1.0 | ALL_14_5 | 26136 | 26137 | 26280 | 26580 | 18016 |
-| 1.0 | ALL_29 | 26324 | 26322 | 26619 | 26876 | 18353 |
-| 1.0 | MULTI_AXIS | 32408 | 32426 | 32549 | 32651 | 18208 |
-| 0.75 | STATIC | 20555 | 20553 | 20736 | 20815 | 12595 |
-| 0.75 | ALL_14_5 | 20442 | 20413 | 20621 | 20744 | 12464 |
-| 0.75 | ALL_29 | 20995 | 20983 | 21168 | 21239 | 13030 |
-| 0.75 | MULTI_AXIS | 26508 | 26494 | 26768 | 26971 | 12944 |
+| 1.0 | STATIC | 26411 | 26409 | 26663 | 26724 | 18379 |
+| 1.0 | ALL_14_5 | 26130 | 26123 | 26327 | 26604 | 18037 |
+| 1.0 | ALL_29 | 26327 | 26320 | 26662 | 26898 | 18360 |
+| 1.0 | MULTI_AXIS | 32381 | 32358 | 32746 | 32874 | 18208 |
+| 0.75 | STATIC | 20525 | 20521 | 20734 | 21025 | 12606 |
+| 0.75 | ALL_14_5 | 20445 | 20386 | 20624 | 20843 | 12473 |
+| 0.75 | ALL_29 | 21006 | 20984 | 21147 | 21443 | 13047 |
+| 0.75 | MULTI_AXIS | 26525 | 26528 | 26656 | 27051 | 12955 |
 
-720 帧中，`frame_drop=0`、`slot_miss=0`、`lock_skip=0`，`deadline_miss=3`（scale 1.0 的 FACE_SWEEP 1 帧、MULTI_AXIS 2 帧）。固定姿态的最终 ARGB CRC32_LE：1.0× STATIC `eae4bd6c`、ALL_14_5 `d522cbf1`、ALL_29 `1033faa1`；0.75× 分别为 `8fa036f7`、`2cd2e74d`、`73e8cc44`。这些值可用于后续确保 profiling/移植没有改变画面；跨模型不可比较。
+720 帧中，`frame_drop=0`、`slot_miss=0`、`lock_skip=0`，`deadline_miss=3`（scale 1.0 的 NECK_SWEEP、FACE_SWEEP、MULTI_AXIS 各 1 帧）。固定姿态的最终 ARGB CRC32_LE：1.0× STATIC `eae4bd6c`、ALL_14_5 `d522cbf1`、ALL_29 `1033faa1`；0.75× 分别为 `8fa036f7`、`2cd2e74d`、`73e8cc44`。这些值可用于后续确保 profiling/移植没有改变画面；跨模型不可比较。
 
 独立 detail 编译模式已另行上板运行，PC 端直接从串口保存 [detail.csv](detail-2026-09-28/detail.csv)，共 16 个场景姿态 × 11 层 = 176 行。1.0× STATIC 一帧提交 257 个三角形、52762 个有效采样 fragment，其中最终 alpha 0/255/mixed 分别为 8437/34791/9534；uint8 overdraw buffer 显示 33488 个 covered pixels，平均 overdraw 1.576、最大 5。1.0× MULTI_AXIS 为 51479 fragments，covered 32801，平均 1.569、最大 6。主路径采用最近邻，每个有效 fragment 一次 sampler call，四个 bilinear taps 全透明项为 0/不适用。detail 构建插入了逐 fragment 计数，不能把它的耗时和正式 timing CSV 比较。
 
