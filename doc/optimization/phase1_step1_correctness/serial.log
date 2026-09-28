@@ -1,0 +1,154 @@
+ESP-ROM:esp32p4-eco2-20240710
+Build:Jul 10 2024
+rst:0x1 (POWERON),boot:0x30f (SPI_FAST_FLASH_BOOT)
+SPI mode:DIO, clock div:1
+load:0x4ff33ce0,len:0x514
+load:0x4ff29ed0,len:0xbbc
+load:0x4ff2cbd0,len:0x3114
+entry 0x4ff29ed0
+I (335) hex_psram: vendor id    : 0x0d (AP)
+I (335) hex_psram: Latency      : 0x01 (Fixed)
+I (335) hex_psram: DriveStr.    : 0x00 (25 Ohm)
+I (336) hex_psram: dev id       : 0x03 (generation 4)
+I (340) hex_psram: density      : 0x07 (256 Mbit)
+I (345) hex_psram: good-die     : 0x06 (Pass)
+I (349) hex_psram: SRF          : 0x02 (Slow Refresh)
+I (354) hex_psram: BurstType    : 0x00 ( Wrap)
+I (358) hex_psram: BurstLen     : 0x03 (2048 Byte)
+I (362) hex_psram: BitMode      : 0x01 (X16 Mode)
+I (367) hex_psram: Readlatency  : 0x04 (14 cycles@Fixed)
+I (372) hex_psram: DriveStrength: 0x00 (1/1)
+I (376) MSPI Timing: Enter psram timing tuning
+I (550) esp_psram: Found 32MB PSRAM device
+I (550) esp_psram: Speed: 200MHz
+I (551) hex_psram: psram CS IO is dedicated
+I (551) cpu_start: Multicore app
+I (1458) esp_psram: SPI SRAM memory test OK
+I (1469) cpu_start: GPIO 38 and 37 are used as console UART I/O pins
+I (1469) cpu_start: Pro cpu start user code
+I (1470) cpu_start: cpu freq: 360000000 Hz
+I (1472) app_init: Application information:
+I (1476) app_init: Project name:     live2d_rt30_baseline
+I (1481) app_init: App version:      8941d63-dirty
+I (1485) app_init: Compile time:     Sep 28 2026 20:45:07
+I (1490) app_init: ELF file SHA256:  9c8daebd3...
+I (1495) app_init: ESP-IDF:          v5.5.2
+I (1499) efuse_init: Min chip rev:     v0.1
+I (1502) efuse_init: Max chip rev:     v1.99 
+I (1507) efuse_init: Chip rev:         v1.3
+I (1511) heap_init: Initializing. RAM available for dynamic allocation:
+I (1517) heap_init: At 4FF1ECF0 len 0001C2D0 (112 KiB): RETENT_RAM
+I (1523) heap_init: At 4FF3AFC0 len 00004BF0 (18 KiB): RAM
+I (1528) heap_init: At 4FF40000 len 00060000 (384 KiB): RAM
+I (1533) heap_init: At 501080A0 len 00007F60 (31 KiB): RTCRAM
+I (1539) heap_init: At 30100084 len 00001F7C (7 KiB): TCM
+I (1544) esp_psram: Adding pool of 32768K of PSRAM memory to heap allocator
+I (1551) spi_flash: detected chip: generic
+I (1554) spi_flash: flash io: dio
+I (1558) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (1564) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (1571) main_task: Started on CPU0
+I (1595) esp_psram: Reserving pool of 256K of internal memory for DMA/internal allocations
+I (1596) main_task: Calling app_main()
+I (1596) l2d_baseline: === Live2D RT30 baseline ===
+I (1600) l2d_baseline: ========================================
+I (1606) l2d_baseline:  Live2D RT30 baseline, target=30 fps, core=0
+I (1612) l2d_baseline:  model=/sdcard/esp.live
+I (1616) l2d_baseline: ========================================
+I (1621) l2d_baseline: heap boot: psram_free=33551716 psram_min=33551716 internal_free=507131
+I (1656) sys_storage: Mounting SD card at /sdcard
+I (1657) main_task: Returned from app_main()
+I (1712) sys_storage: Storage subsystem ready (NVS + SD at /sdcard)
+I (1712) sys_sdio: ready: SD serial task core=0 prio=4 queue=20
+I (1714) sys_storage: font cache found: /sdcard/fonts/noto_sans_sc_16.bin (955208 bytes)
+I (1720) l2d_baseline: storage ready at /sdcard
+I (1726) esp_lvgl:adapter: LVGL adapter initialized successfully
+I (1803) GT911: TouchPad_ID:0x39,0x31,0x31
+I (1803) GT911: TouchPad_Config_Version:101
+W (1803) ledc: GPIO 20 is not usable, maybe conflict with others
+I (1806) WT99P4C5_S1_BOARD: MIPI DSI PHY Powered on
+I (1811) WT99P4C5_S1_BOARD: Install MIPI DSI LCD control panel
+I (1816) WT99P4C5_S1_BOARD: Install EK79007 LCD control panel
+I (1821) WT99P4C5_S1_BOARD: MIPI DSI DPI clock: 80.00 MHz
+I (1826) ek79007: version: 1.0.4
+I (2000) WT99P4C5_S1_BOARD: Display initialized
+I (2000) WT99P4C5_S1_BOARD: Display resolution 1024x600
+I (2004) esp_lvgl:bridge_v9: Initializing hardware resources
+I (2004) esp_lvgl:bridge_v9: Hardware resources initialized successfully
+I (2015) WT99P4C5_S1_BOARD: GT911 touch ready on GPIO 21
+W (2015) esp_lvgl:touch: LV_USE_GESTURE_RECOGNITION is disabled; only single-point pointer events are available
+I (2025) esp_lvgl:touch: Touch input device registered successfully (IRQ mode: disabled)
+I (2033) esp_lvgl:adapter: LVGL task started successfully
+I (2038) sys_display: Display + LVGL initialized (custom config)
+I (2043) WT99P4C5_S1_BOARD: Setting LCD backlight: 80%
+I (2048) sys_monitor: CPU monitor started (FreeRTOS idle run time, 1 s windows)
+I (2055) sys_monitor: FPS tracking attached to display
+I (2592) l2d_baseline: model file loaded: /sdcard/esp.live (798660 bytes)
+I (2592) l2d_baseline: model CRC32_LE=0x06dce0ed
+I (2644) l2d_baseline: model SHA256=786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b
+I (2644) live2d_engine: Live2D engine pool allocated in PSRAM: 16777216 bytes
+I (2649) live2d_engine: Importing PainterEngine Live2D model, file size=798660 bytes, pool free=16777216 bytes
+I (2703) live2d_engine: Model loaded: id='esp', size=320x320, layers=11, textures=12, animations=1, pool free=15944312 bytes
+I (2704) live2d_engine: Using nearest-neighbor pixel shader for ESP renderer
+I (2710) live2d_engine: RT30 realtime axes: 4
+I (2715) live2d_engine:   axis[0] id='left_eye' default=0 middle=15 bindings=2 sampleBytes=360 stride=12 vidx=0 Q(coord=4 rot=6 stretch=14)
+I (2727) live2d_engine:     binding[0] layer=6 id='right_eye' mask=0x0050 vertices=0 sample_offset=0
+I (2736) live2d_engine:     binding[1] layer=8 id='left_eyeup' mask=0x0010 vertices=0 sample_offset=6
+I (2745) live2d_engine:   axis[1] id='right_eye' default=0 middle=15 bindings=2 sampleBytes=240 stride=8 vidx=0 Q(coord=4 rot=6 stretch=14)
+I (2757) live2d_engine:     binding[0] layer=5 id='left_eye' mask=0x0040 vertices=0 sample_offset=0
+I (2766) live2d_engine:     binding[1] layer=7 id='right_eyeup' mask=0x0010 vertices=0 sample_offset=2
+I (2775) live2d_engine:   axis[2] id='neck' default=15 middle=15 bindings=1 sampleBytes=960 stride=32 vidx=7 Q(coord=4 rot=6 stretch=14)
+I (2787) live2d_engine:     binding[0] layer=3 id='neck' mask=0x0028 vertices=7 sample_offset=0
+I (2795) live2d_engine:   axis[3] id='face' default=15 middle=15 bindings=11 sampleBytes=27240 stride=908 vidx=227 Q(coord=4 rot=6 stretch=14)
+I (2807) live2d_engine:     binding[0] layer=0 id='back_hair' mask=0x0008 vertices=42 sample_offset=0
+I (2816) live2d_engine:     binding[1] layer=1 id='cloth' mask=0x0008 vertices=25 sample_offset=168
+I (2825) live2d_engine:     binding[2] layer=2 id='face' mask=0x0008 vertices=15 sample_offset=268
+I (2834) live2d_engine:     binding[3] layer=3 id='neck' mask=0x0008 vertices=8 sample_offset=328
+I (2842) live2d_engine:     binding[4] layer=4 id='mouth' mask=0x0008 vertices=5 sample_offset=360
+I (2851) live2d_engine:     binding[5] layer=5 id='left_eye' mask=0x0008 vertices=11 sample_offset=380
+I (2860) live2d_engine:     binding[6] layer=6 id='right_eye' mask=0x0008 vertices=10 sample_offset=424
+I (2869) live2d_engine:     binding[7] layer=7 id='right_eyeup' mask=0x0008 vertices=13 sample_offset=464
+I (2879) live2d_engine:     binding[8] layer=8 id='left_eyeup' mask=0x0008 vertices=13 sample_offset=516
+I (2888) live2d_engine:     binding[9] layer=9 id='front_hair' mask=0x0008 vertices=64 sample_offset=568
+I (2897) live2d_engine:     binding[10] layer=10 id='hairwear' mask=0x0008 vertices=21 sample_offset=824
+I (2907) live2d_engine: Playing default animation index 1/1
+I (2911) l2d_baseline: model ready id='esp' size=320x320 layers=11 textures=12 animations=1 load=262ms pool_free=15944312
+I (2922) l2d_baseline: RT30 axis_count=4 static=29524 runtime=2392 selectedSample=0
+I (2930) l2d_baseline: axis handles: left_eye=0 right_eye=1 neck=2 face=3 mouth=-1
+I (2937) l2d_baseline: benchmark axes=4, mouth=absent (mouth sweep skipped)
+I (2943) l2d_baseline: render ROI: 320x320 at (352,140), lcd=1024x600
+I (2950) sys_display_buf: PSRAM before alloc: total=33554432  free=14282532 largest=13369344
+I (2958) sys_display_buf: buffers created: 320x320  ARGB=409600  RGB565=204800 bytes (PSRAM DMA=yes)
+I (2967) sys_display_buf: PSRAM after alloc: total=33554432  free=13668124 largest=13369344
+I (2978) sys_display_flush: Flush path: 320x320 at (352,140) -> panel direct draw
+I (2982) live2d_engine: Internal render scale set to 1.000
+I (2994) live2d_renderer: PPA fill transparent clear enabled
+I (2995) live2d_renderer: Renderer initialized: 320x320 ARGB8888 -> RGB565 via PPA SRM, rgb_swap=0, byte_swap=0, source block=320x320@(0,0)
+I (3005) l2d_baseline: PPA mode: hardware transparent clear + hardware ARGB->RGB565 convert
+I (3013) l2d_baseline: heap ready: psram_free=13667128 psram_min=13479712 internal_free=382455
+I (3021) l2d_baseline: continuous RT30 drive active on 4 model axes
+I (3027) live2d_engine: Internal render scale set to 1.000
+L2D_META_BEGIN
+esp_commit=8941d63031b894a541bc4737f39d6cf048d1171e
+model_sha256=786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b
+model_size=798660
+mode=correctness
+scale_q100=100
+L2D_META_END
+L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok
+L2D_CORRECTNESS,STATIC,100,1,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,ALL_14_5,100,2,d522cbf1,53529722,1,1
+L2D_CORRECTNESS,ALL_29,100,3,1033faa1,9fddce6e,1,1
+L2D_CORRECTNESS,EYE_L_0,100,4,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,EYE_L_15,100,5,1aa498d4,5ef88359,1,1
+L2D_CORRECTNESS,EYE_L_29,100,6,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,EYE_R_0,100,7,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,EYE_R_15,100,8,53359601,5c660276,1,1
+L2D_CORRECTNESS,EYE_R_29,100,9,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,NECK_1,100,10,3d2489bf,ee50cd9a,1,1
+L2D_CORRECTNESS,NECK_15,100,11,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,NECK_29,100,12,271b9863,1e5536a3,1,1
+L2D_CORRECTNESS,FACE_5,100,13,3fd49846,5e024748,1,1
+L2D_CORRECTNESS,FACE_15,100,14,eae4bd6c,8694d6e4,1,1
+L2D_CORRECTNESS,FACE_25,100,15,2e5cee31,c6a5cd60,1,1
+L2D_DONE
