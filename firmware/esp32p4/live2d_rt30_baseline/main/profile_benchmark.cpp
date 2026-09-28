@@ -20,12 +20,57 @@
 #ifndef L2D_PC_COMMIT
 #define L2D_PC_COMMIT "78fc634"
 #endif
+#ifndef CONFIG_L2D_PROFILE_STAGE
+#define CONFIG_L2D_PROFILE_STAGE 0
+#endif
 
 static const char *TAG = "l2d_profile";
-#if CONFIG_L2D_PROFILE_LONG_RUN
-static constexpr int WARMUP = 100, MEASURE = 1000, ROUNDS = 3, FRAME_US = 33333;
-#else
-static constexpr int WARMUP = 5, MEASURE = 45, ROUNDS = 1, FRAME_US = 33333;
+static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
+
+#if CONFIG_L2D_PROFILE_CORRECTNESS
+static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer,
+    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t h,
+    const char *model_sha256, size_t model_size) {
+    struct pose_t { const char *name; int axis; float sample; };
+    static const pose_t poses[] = {
+        {"STATIC", -2, 0}, {"ALL_14_5", -1, 14.5f}, {"ALL_29", -1, 29},
+        {"EYE_L_0", 0, 0}, {"EYE_L_15", 0, 15}, {"EYE_L_29", 0, 29},
+        {"EYE_R_0", 1, 0}, {"EYE_R_15", 1, 15}, {"EYE_R_29", 1, 29},
+        {"NECK_1", 2, 1}, {"NECK_15", 2, 15}, {"NECK_29", 2, 29},
+        {"FACE_5", 3, 5}, {"FACE_15", 3, 15}, {"FACE_25", 3, 25},
+    };
+    const int handles[] = {h.eye_l, h.eye_r, h.neck, h.face, h.mouth};
+    uint32_t correctness_frame_id = 0;
+    live2d_engine_set_render_scale(engine, 1.0f);
+    printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
+           "mode=correctness\nscale_q100=100\nL2D_META_END\n",
+           L2D_ESP_COMMIT, model_sha256, (unsigned)model_size);
+    fputs("L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok\n", stdout);
+    for (const pose_t &pose : poses) {
+        live2d_engine_reset_realtime(engine);
+        bool ok = true;
+        if (pose.axis == -1) {
+            for (int i = 0; i < 5; ++i)
+                if (handles[i] >= 0)
+                    ok = live2d_engine_set_axis_position(engine, handles[i], pose.sample, 32767) && ok;
+        } else if (pose.axis >= 0) {
+            ok = handles[pose.axis] >= 0 &&
+                 live2d_engine_set_axis_position(engine, handles[pose.axis], pose.sample, 32767);
+        }
+        buffer->frame_id = ++correctness_frame_id;
+        esp_err_t render_ret = ok ? live2d_renderer_render_frame(renderer, engine, 33) : ESP_FAIL;
+        esp_err_t submit_ret = render_ret == ESP_OK ? sys_display_flush_submit(flush) : ESP_FAIL;
+        uint32_t argb_crc = render_ret == ESP_OK
+            ? esp_rom_crc32_le(0, (const uint8_t *)buffer->render_argb8888, (uint32_t)buffer->render_bytes) : 0;
+        uint32_t rgb_crc = render_ret == ESP_OK
+            ? esp_rom_crc32_le(0, (const uint8_t *)buffer->frame_rgb565, (uint32_t)buffer->frame_bytes) : 0;
+        printf("L2D_CORRECTNESS,%s,100,%" PRIu32 ",%08" PRIx32 ",%08" PRIx32 ",%d,%d\n",
+               pose.name, buffer->frame_id, argb_crc, rgb_crc,
+               render_ret == ESP_OK, submit_ret == ESP_OK);
+    }
+    puts("L2D_DONE");
+    fflush(stdout);
+}
 #endif
 /* Allocated once in PSRAM, before frame loops; never resized in the hot path. */
 typedef struct {
@@ -33,8 +78,11 @@ typedef struct {
     uint32_t slot_wait_us, controller_us, rt30_us, hierarchy_vertex_us, bounds_us;
     uint32_t clear_us, raster_us, cache_sync_us, producer_total_us;
     uint32_t publish_consume_us, ppa_wait_us, ppa_blend_us, panel_submit_us;
+    uint32_t ppa_fill_us, ppa_srm_us, ppa_total_us;
+    uint32_t clear_cache_sync_us, convert_cache_sync_us, flush_cache_sync_us, cache_sync_total_us;
+    uint32_t display_lock_wait_us, flush_total_us, frame_total_us;
     uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
-    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, checksum;
+    uint32_t frame_drop, slot_miss, lock_skip, deadline_miss;
 } sample_t;
 static sample_t *ring;
 static uint32_t next_frame_id;
@@ -55,11 +103,7 @@ static bool drive(live2d_engine_t *engine, l2d_axis_handles_t h, scenario_t scen
         if (scene == ALL_29) q = 29.0f;
         else if (scene >= EYE_L && scene <= MOUTH) {
             if (i != (int)scene - (int)EYE_L) continue;
-#if CONFIG_L2D_PROFILE_LONG_RUN
-            q = triangle(frame, 0);
-#else
             q = triangle((frame * 58) / (WARMUP + MEASURE - 1), 0);
-#endif
         } else if (scene == MULTI) q = triangle(frame, i * 7);
         ok = live2d_engine_set_axis_position(engine, handles[i], q, 32767) && ok;
     }
@@ -93,12 +137,22 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
         out->rt30_us = p.poseUs; out->hierarchy_vertex_us = p.physicalUs;
         out->bounds_us = renderer->last_bounds_us;
         out->clear_us = renderer->last_clear_us; out->raster_us = p.drawUs;
-        out->cache_sync_us = renderer->last_clear_sync_us + flush->last_cache_sync_us;
+        out->clear_cache_sync_us = renderer->last_clear_sync_us;
+        out->convert_cache_sync_us = renderer->last_convert_sync_us;
+        out->flush_cache_sync_us = flush->last_cache_sync_us;
+        out->cache_sync_total_us = out->clear_cache_sync_us + out->convert_cache_sync_us + out->flush_cache_sync_us;
+        out->cache_sync_us = out->cache_sync_total_us;
         out->producer_total_us = (uint32_t)(publish - begin);
         out->publish_consume_us = flush->consume_begin_us >= publish && submit_ret == ESP_OK
             ? (uint32_t)(flush->consume_begin_us - publish) : 0;
-        out->ppa_wait_us = renderer->last_clear_fill_us + renderer->last_ppa_convert_us;
+        out->ppa_fill_us = renderer->use_ppa_clear ? renderer->last_clear_fill_us : 0;
+        out->ppa_srm_us = renderer->use_ppa_convert ? renderer->last_ppa_convert_us : 0;
+        out->ppa_total_us = out->ppa_fill_us + out->ppa_srm_us;
+        out->ppa_wait_us = out->ppa_total_us;
+        out->display_lock_wait_us = flush->last_lock_wait_us;
         out->panel_submit_us = flush->last_panel_submit_us;
+        out->flush_total_us = submit_ret == ESP_OK ? (uint32_t)(end - flush->consume_begin_us) : 0;
+        out->frame_total_us = (uint32_t)(end - begin);
         out->dirty_x = renderer->dirty_x; out->dirty_y = renderer->dirty_y;
         out->dirty_w = renderer->dirty_w; out->dirty_h = renderer->dirty_h;
         out->frame_drop = (!input_ok || render_ret != ESP_OK || submit_ret != ESP_OK ||
@@ -202,7 +256,11 @@ static void run_detail(live2d_engine_t *engine, live2d_renderer_t *renderer,
 void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
     sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
     int64_t load_us, const char *model_sha256, size_t model_size) {
-#if CONFIG_L2D_PROFILE_DETAIL
+#if CONFIG_L2D_PROFILE_CORRECTNESS
+    (void)load_us;
+    run_correctness(engine, renderer, buffer, flush, handles, model_sha256, model_size);
+    return;
+#elif CONFIG_L2D_PROFILE_DETAIL
     (void)load_us; (void)model_sha256; (void)model_size;
     run_detail(engine, renderer, buffer, flush, handles);
     return;
@@ -228,39 +286,42 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         "model_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
         "layers=%d\nvertices=%" PRIu32 "\ntriangles=%" PRIu32
         "\ntextures=%d\ntexture_pixels=%" PRIu32 "\naxes=%d\nsampler=fast-nearest\n"
+        "profile_stage=%d\nprofile_mode=timing\n"
         "warmup=%d\nmeasure=%d\nrounds=%d\n",
         L2D_ESP_COMMIT, L2D_PC_COMMIT, esp_get_idf_version(),
         CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, CONFIG_SPIRAM_SPEED,
         buffer->width, buffer->height, model_sha256, (unsigned)model_size,
         (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
-        live2d_engine_get_realtime_axis_count(engine), WARMUP, MEASURE, ROUNDS);
+        live2d_engine_get_realtime_axis_count(engine), CONFIG_L2D_PROFILE_STAGE,
+        WARMUP, MEASURE, ROUNDS);
     fputs("L2D_META_END\n", metadata);
     fputs("L2D_FRAME_HEADER,frame_id,scenario,scale_q100,round,frame,slot_wait_us,controller_us,rt30_us,"
           "hierarchy_vertex_us,bounds_us,clear_us,raster_us,cache_sync_us,producer_total_us,"
-          "publish_consume_us,ppa_wait_us,ppa_blend_us,panel_submit_us,dirty_x,dirty_y,"
-          "dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,checksum\n", csv);
+          "publish_consume_us,ppa_wait_us,ppa_blend_us,panel_submit_us,"
+          "ppa_fill_us,ppa_srm_us,ppa_total_us,clear_cache_sync_us,convert_cache_sync_us,"
+          "flush_cache_sync_us,cache_sync_total_us,display_lock_wait_us,flush_total_us,frame_total_us,"
+          "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max\n", summary);
     fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
             (long long)load_us, (long long)load_us, (long long)load_us);
-    ESP_LOGI(TAG, "profile suite: %d scenarios x 2 scales x %d rounds x %d frames",
-             COUNT - (handles.mouth < 0 ? 1 : 0), ROUNDS, MEASURE);
-    for (int scale : {100, 75}) {
+    ESP_LOGI(TAG, "profile suite: stage=%d rounds=%d frames=%d", CONFIG_L2D_PROFILE_STAGE, ROUNDS, MEASURE);
+    for (int scale : {100}) {
         live2d_engine_set_render_scale(engine, scale/100.0f);
         for (int scene_num = 0; scene_num < COUNT; ++scene_num) {
             scenario_t scene = (scenario_t)scene_num;
             if (scene == MOUTH && handles.mouth < 0) continue;
+            if (CONFIG_L2D_PROFILE_STAGE == 0 && scene != STATIC && scene != EYE_L && scene != MULTI) continue;
+            if (CONFIG_L2D_PROFILE_STAGE == 1 && scene != STATIC && scene != EYE_L && scene != NECK && scene != FACE && scene != MULTI) continue;
+            if (CONFIG_L2D_PROFILE_STAGE == 2 && scene != STATIC && scene != MULTI) continue;
             for (int round = 1; round <= ROUNDS; ++round) {
                 live2d_engine_reset_realtime(engine);
                 for (int i = 0; i < WARMUP; ++i)
                     run_frame(engine, renderer, buffer, flush, handles, scene, round, i, scale, NULL);
-                uint32_t checksum = esp_rom_crc32_le(0, (const uint8_t *)buffer->render_argb8888,
-                                                     (uint32_t)buffer->render_bytes);
                 for (int i = 0; i < MEASURE; ++i) {
                     run_frame(engine, renderer, buffer, flush, handles, scene, round,
                               i+WARMUP, scale, &ring[i]);
-                    ring[i].checksum = checksum;
                 }
                 for (int i = 0; i < MEASURE; ++i) write_row(csv, &ring[i]);
                 fflush(csv);
@@ -268,10 +329,12 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 SUM(bounds_us); SUM(clear_us); SUM(raster_us); SUM(cache_sync_us);
                 SUM(producer_total_us); SUM(publish_consume_us); SUM(ppa_wait_us);
                 SUM(ppa_blend_us); SUM(panel_submit_us); SUM(frame_drop);
+                SUM(ppa_fill_us); SUM(ppa_srm_us); SUM(ppa_total_us);
+                SUM(clear_cache_sync_us); SUM(convert_cache_sync_us); SUM(flush_cache_sync_us);
+                SUM(cache_sync_total_us); SUM(display_lock_wait_us); SUM(flush_total_us); SUM(frame_total_us);
                 SUM(slot_miss); SUM(lock_skip); SUM(deadline_miss);
                 fflush(summary);
-                ESP_LOGI(TAG, "done %s scale=%d round=%d checksum=%08" PRIx32,
-                         names[scene], scale, round, checksum);
+                ESP_LOGI(TAG, "done %s scale=%d round=%d", names[scene], scale, round);
             }
         }
     }

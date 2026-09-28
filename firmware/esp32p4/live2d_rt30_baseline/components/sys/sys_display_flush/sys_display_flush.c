@@ -70,6 +70,9 @@ esp_err_t sys_display_flush_submit(sys_display_flush_t *f)
 
     f->consume_begin_us = esp_timer_get_time();
     f->consumed_frame_id = f->buffer->frame_id;
+    f->last_cache_sync_us = 0;
+    f->last_lock_wait_us = 0;
+    f->last_panel_submit_us = 0;
     int64_t stage_begin_us = esp_timer_get_time();
 
     /* 写回cache，确保DMA能读到最新的帧数据 */

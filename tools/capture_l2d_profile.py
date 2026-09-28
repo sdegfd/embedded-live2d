@@ -27,7 +27,8 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     paths = {"L2D_FRAME": args.out / "frames.csv",
              "L2D_SUMMARY": args.out / "summary.csv",
-             "L2D_DETAIL": args.out / "detail.csv"}
+             "L2D_DETAIL": args.out / "detail.csv",
+             "L2D_CORRECTNESS": args.out / "correctness.csv"}
     files = {}
     raw = (args.out / "serial.log").open("wb") if args.port else None
     metadata = []
@@ -89,8 +90,9 @@ def main() -> int:
         for file in files.values():
             file.close()
     print("capture", "complete" if done else "incomplete", "frames", counts["L2D_FRAME"],
-          "summary rows", counts["L2D_SUMMARY"], "detail rows", counts["L2D_DETAIL"])
-    return 0 if done and (counts["L2D_FRAME"] or counts["L2D_DETAIL"]) else 2
+          "summary rows", counts["L2D_SUMMARY"], "detail rows", counts["L2D_DETAIL"],
+          "correctness rows", counts["L2D_CORRECTNESS"])
+    return 0 if done and any(counts.values()) else 2
 
 
 if __name__ == "__main__":

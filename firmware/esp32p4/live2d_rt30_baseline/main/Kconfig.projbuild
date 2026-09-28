@@ -3,10 +3,18 @@ config L2D_PROFILE_TIMING
     bool "Record per-frame pipeline timings into a fixed ring"
     default y
 
-config L2D_PROFILE_LONG_RUN
-    bool "Use the 100-warmup / 1000-sample / 3-round extended suite"
+config L2D_PROFILE_STAGE
+    int "Benchmark scenario set: 0=baseline v2, 1=RT30/vertex, 2=PPA A/B"
+    range 0 2
     depends on L2D_PROFILE_TIMING
+    default 0
+
+config L2D_PROFILE_CORRECTNESS
+    bool "Run fixed-pose ARGB8888 and RGB565 CRC checks instead of timings"
     default n
+    help
+        This independent mode renders fixed poses and computes CRC after each frame.
+        It must not be used for timing benchmarks.
 
 config L2D_PROFILE_DETAIL
     bool "Collect raster workload counters (separate diagnostic build)"
