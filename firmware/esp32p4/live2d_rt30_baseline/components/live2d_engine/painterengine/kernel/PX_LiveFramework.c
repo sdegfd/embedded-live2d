@@ -1256,9 +1256,6 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 	px_float visualScale,visualRotation;
 	px_float visualRotationCos,visualRotationSin;
 	px_point visualTranslation;
-	px_point childStretchDirection[PX_LIVE_LAYER_MAX_LINK_NODE];
-	px_float childStretchDelta[PX_LIVE_LAYER_MAX_LINK_NODE];
-	px_int childStretchCount=0;
 
 
 	PX_LiveFrameworkUpdateLayerRenderVerticesUV(pLive,pLayer);
@@ -1295,21 +1292,6 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 	visualRotationCos=PX_cos_angle(visualRotation);
 	visualRotationSin=PX_sin_angle(visualRotation);
 
-
-	/* Child key positions are fixed across vertices of this layer. Compute the
-	 * unit direction once; each vertex only needs a signed projection. */
-	for (i=0;i<PX_COUNTOF(pLayer->child_index);i++)
-	{
-		PX_LiveLayer *pChild=PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[i]);
-		if (!pChild) break;
-		childStretchDelta[childStretchCount]=pChild->rel_currentStretch-1;
-		if (childStretchDelta[childStretchCount]!=0)
-		{
-			childStretchDirection[childStretchCount]=PX_PointNormalization(
-				PX_PointSub(pChild->keyPoint,pLayer->keyPoint));
-		}
-		childStretchCount++;
-	}
 	//for each vertex
 	for (i=0;i<pLayer->vertices.size;i++)
 	{
@@ -1361,21 +1343,34 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 		resultPosition.z+=plv->currentTranslation.z;
 
 		//stretch
+		do 
 		{
 			px_int j;
-			for (j=0;j<childStretchCount;j++)
+			for (j=0;j<PX_COUNTOF(pLayer->child_index);j++)
 			{
-				if (childStretchDelta[j]!=0)
+				PX_LiveLayer *pChild=PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[j]);
+				if(!pChild)
+					break;
+
+				
+				if (pChild->rel_currentStretch!=1)
 				{
-					px_float projection=PX_PointDot(childStretchDirection[j],resultPosition);
-					if (projection>0)
+					px_float cos_v12;
+					px_point v1,v2,u1;
+					v1=PX_PointSub(pChild->keyPoint,pLayer->keyPoint);
+					v2=resultPosition;
+					cos_v12=PX_PointDot(v1,v2)/PX_PointMod(v1)/PX_PointMod(v2);
+					if (cos_v12>0)
 					{
-						resultPosition=PX_PointAdd(resultPosition,PX_PointMul(
-							childStretchDirection[j],projection*childStretchDelta[j]));
+						px_float distance;
+						u1=PX_PointNormalization(v1);
+						distance=cos_v12*PX_PointMod(v2);
+						resultPosition=PX_PointAdd(resultPosition,PX_PointMul(u1,distance*(pChild->rel_currentStretch-1)));
 					}
 				}
 			}
-		}
+		} while (0);
+
 
 		//Rotation
 		resultPosition=PX_LiveFrameworkRotatePointCached(resultPosition,
