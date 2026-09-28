@@ -6,7 +6,7 @@
 
 CPU 占用由 FreeRTOS 每核 Idle 任务的运行时间增量计算，约每秒更新一次，不再使用固定计数后休眠的空闲测量任务。持续动画日志另给出每帧平均 `total`（渲染并提交）、`budget_remain`（33.333 ms 预算剩余）、`actual_wait`（节拍函数实际等待）和 `period`（帧开始到等待结束），单位均为微秒。真机数据见仓库 [CPU 占用与帧等待复测](../../../doc/cpu-monitor-2026-09-28/README.md)。
 
-默认 `CONFIG_L2D_PROFILE_TIMING=y`：按模型现有轴最多 9 个姿态场景 × scale 1.0/0.75，各预热 5 帧并记录 45 帧，总计约 30 秒。4 轴 `esp.live` 跳过嘴轴场景。每组采集结束才通过串口输出该组原始帧记录和 summary，热路径不打印；PC 端运行仓库 `tools/capture_l2d_profile.py` 持续捕获到 CSV。板端不把测试结果写入 SD。需要扩展测试时开启 `CONFIG_L2D_PROFILE_LONG_RUN`，恢复每组预热 100 帧、记录 1000 帧、重复 3 轮。
+默认 `CONFIG_L2D_PROFILE_TIMING=y`：按 `CONFIG_L2D_PROFILE_STAGE` 选择测试场景；每场景 scale 1.0、预热 5 帧、记录 50 帧、只跑 1 轮。Stage 0 测 STATIC、EYE_L_SWEEP、MULTI_AXIS；Stage 1 增加 NECK_SWEEP、FACE_SWEEP；Stage 2 测 STATIC、MULTI_AXIS。每组采集结束才通过串口输出原始帧记录和 summary，热路径不打印；PC 端运行仓库 `tools/capture_l2d_profile.py` 持续捕获到 CSV。板端不把测试结果写入 SD。独立的 `CONFIG_L2D_PROFILE_CORRECTNESS` 模式记录固定姿态 ARGB8888/RGB565 CRC。
 
 `CONFIG_L2D_PROFILE_DETAIL=y` 运行独立工作量统计，从串口输出 `L2D_DETAIL` 记录；可选 `CONFIG_L2D_PROFILE_OVERDRAW=y`。详细模式的耗时不能用于正式 benchmark。
 

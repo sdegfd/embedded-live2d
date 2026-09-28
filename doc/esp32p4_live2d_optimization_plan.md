@@ -178,9 +178,9 @@ MULTI_AXIS
 配置：
 
 ```text
-warmup = 100
-measure = 1000
-rounds = 3
+warmup = 5
+measure = 50
+rounds = 1
 ```
 
 输出目录：
@@ -465,9 +465,9 @@ MULTI_AXIS
 配置：
 
 ```text
-warmup 100
-measure 1000
-rounds 3
+warmup 5
+measure 50
+rounds 1
 ```
 
 ---
