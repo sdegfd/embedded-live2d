@@ -42,6 +42,8 @@ PC 使用 [串口捕获脚本](../tools/capture_l2d_profile.py) 保存原始数�
 
 ## 已验证与未覆盖
 
+后续修正了旧版 CPU 空闲计数算法，并新增帧预算/实际等待记录；测量方法与新固件实测见 [CPU 占用与帧等待复测](cpu-monitor-2026-09-28/README.md)。本报告上方的 720 帧 timing CSV 仍对应原始渲染基线构建，不与启用 FreeRTOS 运行时间统计后的耗时直接比较。
+
 - 真机完成编译、烧录和短测，无 panic、Guru Meditation、Backtrace；固定姿态 checksum 不同，逐轴/多轴画面变化。性能表是板端串口导出的实测 CSV，不是估算。
 - `L2D_PROFILE_DETAIL` 是单独编译的工作量模式，统计每层三角形、fragment、sampler call、四个 bilinear tap 全透明、最终 alpha 分类；可选 uint8 overdraw buffer，统计 covered pixels、平均/最大 overdraw。其耗时不可与正式 timing CSV 混合。当前主路径为最近邻，bilinear 四 tap 项为 0/不适用。
 - 此独立例程没有接真实 controller，也没有完整系统应用负载；本轮 `MULTI_AXIS` 是确定性输入代理，不能标成“真实 controller 60s”或“完整系统负载 60s”。用户已将本轮验收改为约 30 秒短测。后续集成到完整系统时再补这两类测量。

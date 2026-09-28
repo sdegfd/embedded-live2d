@@ -11,6 +11,8 @@
 
 ESP 工程地址：`firmware/esp32p4/live2d_rt30_baseline/`。它使用 ESP-IDF 5.5.2；进入该目录执行 `idf.py build`、`idf.py -p <串口> flash`。默认 `L2D_PROFILE_TIMING=y`，运行约 30 秒的场景 × 两档 scale 短测；每组结束通过串口输出原始记录和统计。PC 端运行 `python tools/capture_l2d_profile.py --port COM5 --out doc/profiling-run` 持续捕获，模型由使用者拷到设备 SD 卡根目录并命名为 `esp.live`。`L2D_PROFILE_DETAIL` 是独立工作量统计模式，不作为正式耗时数据。最新实测见 [移植与 profiling 报告](doc/esp32p4-porting-profile-2026-09-28.md)。
 
+CPU 占用算法和 33.333 ms 帧预算等待的真机复测见 [CPU 占用与帧等待记录](doc/cpu-monitor-2026-09-28/README.md)。
+
 Linux 下可单独编译 PC RT30 算法测试：
 
 ```bash
