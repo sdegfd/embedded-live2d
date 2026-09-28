@@ -1,0 +1,23 @@
+## IDF Component Manager Manifest File
+dependencies:
+  idf: ">=5.3"
+
+  # LCD display driver (EK79007 MIPI DSI)
+  espressif/esp_lcd_ek79007:
+    version: "1.*"
+    public: true
+
+  # Touch panel driver (GT911 I2C)
+  espressif/esp_lcd_touch_gt911:
+    version: "*"
+    public: true
+
+  # LVGL graphics library
+  lvgl/lvgl:
+    version: ">=9,<10"
+    public: true
+
+  # FreeType font rendering
+  espressif/freetype:
+    version: "*"
+    public: true

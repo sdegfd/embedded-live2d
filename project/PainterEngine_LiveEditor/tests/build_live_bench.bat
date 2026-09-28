@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "PROJECT_DIR=%~dp0"
-set "ENGINE_DIR=D:\live2d\PainterEngine"
+set "ENGINE_DIR=%PROJECT_DIR%..\..\..\PainterEngine"
 set "OUTDIR=%PROJECT_DIR%bench_build"
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALLDIR=%%I"

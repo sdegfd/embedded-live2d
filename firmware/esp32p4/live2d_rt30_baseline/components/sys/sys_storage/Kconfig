@@ -1,0 +1,19 @@
+menu "Sys Storage"
+
+config SYS_STORAGE_FONT_PATH
+    string "Default CJK font path on SD card"
+    default "/sdcard/fonts/NotoSansSC-VariableFont_wght.ttf"
+    help
+        POSIX path to a TrueType/OpenType CJK font file on the SD card.
+        The file must be accessible after SD card mount.
+        Used by sys_storage_font_get_default().
+
+config SYS_STORAGE_FONT_SIZE
+    int "Default CJK font size (px)"
+    default 18
+    range 8 64
+    help
+        Font size in pixels for the default CJK font.
+        Uses FreeType BITMAP render mode for best performance on P4.
+
+endmenu

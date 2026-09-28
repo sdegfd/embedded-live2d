@@ -1,0 +1,22 @@
+menu "Live2D profiling baseline"
+config L2D_PROFILE_TIMING
+    bool "Record per-frame pipeline timings into a fixed ring"
+    default y
+
+config L2D_PROFILE_LONG_RUN
+    bool "Use the 100-warmup / 1000-sample / 3-round extended suite"
+    depends on L2D_PROFILE_TIMING
+    default n
+
+config L2D_PROFILE_DETAIL
+    bool "Collect raster workload counters (separate diagnostic build)"
+    default n
+    help
+        Adds per-fragment counters. These runs are not timing benchmarks.
+
+config L2D_PROFILE_OVERDRAW
+    bool "Collect uint8 overdraw map"
+    depends on L2D_PROFILE_DETAIL
+    default n
+
+endmenu

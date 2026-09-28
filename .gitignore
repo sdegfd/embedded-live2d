@@ -14,6 +14,11 @@
 
 # 构建目录和本机归档的旧程序
 **/build/
+**/build_idf*/
+**/build_detail/
+**/managed_components/
+**/sdkconfig.old
+/firmware/**/sdcard/*.live
 **/bench_build/
 **/rt30_obj/
 **/CMakeFiles/
