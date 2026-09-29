@@ -8,6 +8,7 @@
 
 #include "l2d_types.h"
 #include "l2d_image.h"
+#include "l2d_model.h"
 #include "l2d_instance.h"
 #include "l2d_roi.h"
 

@@ -332,7 +332,8 @@ px_bool PX_VectorCopy(px_vector *destvec,px_vector *resvec)
  */
 px_void PX_VectorFree(px_vector *vec)
 {
-	if((vec->data)!=PX_NULL)
+	/* mp == NULL means the buffer is aliased from another owner. */
+	if((vec->data)!=PX_NULL && vec->mp!=PX_NULL)
 		MP_Free(vec->mp,vec->data);
 }
 

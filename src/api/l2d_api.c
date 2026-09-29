@@ -6,9 +6,140 @@
 
 #include <string.h>
 
-struct l2d_instance {
+struct l2d_model {
     live2d_engine_t *engine;
 };
+
+struct l2d_instance {
+    l2d_model_t *model;
+    live2d_engine_t *engine;
+};
+
+#define L2D_MODEL_POOL_BYTES (16u * 1024u * 1024u)
+
+static void l2d_copy_share_view(l2d_share_view_t *out, const live2d_engine_share_view_t *src)
+{
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!src) {
+        return;
+    }
+    out->texture_pixels = src->texture_pixels;
+    out->triangle_indices = src->triangle_indices;
+    out->rt30_samples = src->rt30_samples;
+    out->animation_frame = src->animation_frame;
+    out->mutable_vertices = src->mutable_vertices;
+    out->pool_used = src->pool_used;
+}
+
+l2d_status_t l2d_model_load_memory(const void *bytes, size_t size, l2d_model_t **out)
+{
+    l2d_model_t *model;
+    l2d_status_t status;
+    if (!out) {
+        return L2D_ERR_INVALID_ARG;
+    }
+    *out = NULL;
+    if (!bytes || size == 0) {
+        return L2D_ERR_INVALID_ARG;
+    }
+    model = (l2d_model_t *)l2d_port_alloc(sizeof(void *), sizeof(*model));
+    if (!model) {
+        return L2D_ERR_NO_MEM;
+    }
+    memset(model, 0, sizeof(*model));
+    status = live2d_engine_create(L2D_MODEL_POOL_BYTES, &model->engine);
+    if (status != L2D_OK) {
+        l2d_port_free(model);
+        return status;
+    }
+    status = live2d_engine_load(model->engine, bytes, size);
+    if (status != L2D_OK) {
+        live2d_engine_destroy(model->engine);
+        l2d_port_free(model);
+        return status;
+    }
+    *out = model;
+    return L2D_OK;
+}
+
+void l2d_model_destroy(l2d_model_t *model)
+{
+    if (!model) {
+        return;
+    }
+    live2d_engine_destroy(model->engine);
+    l2d_port_free(model);
+}
+
+void l2d_model_info(const l2d_model_t *model, l2d_model_info_t *out)
+{
+    live2d_engine_info_t info;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!model) {
+        return;
+    }
+    live2d_engine_get_info(model->engine, &info);
+    memcpy(out->id, info.id, sizeof(out->id));
+    out->width = info.width;
+    out->height = info.height;
+    out->layer_count = info.layer_count;
+    out->texture_count = info.texture_count;
+    out->animation_count = info.animation_count;
+    out->axis_count = live2d_engine_get_realtime_axis_count(model->engine);
+    out->pool_bytes = info.pool_size;
+    out->pool_free = info.pool_free;
+}
+
+int l2d_model_animation_count(const l2d_model_t *model)
+{
+    live2d_engine_info_t info;
+    if (!model) {
+        return 0;
+    }
+    live2d_engine_get_info(model->engine, &info);
+    return info.animation_count;
+}
+
+int l2d_model_axis_count(const l2d_model_t *model)
+{
+    return model ? live2d_engine_get_realtime_axis_count(model->engine) : 0;
+}
+
+int l2d_model_find_axis(const l2d_model_t *model, const char *id)
+{
+    if (!model) {
+        return -1;
+    }
+    return live2d_engine_find_realtime_axis(model->engine, id);
+}
+
+void l2d_model_share_view(const l2d_model_t *model, l2d_share_view_t *out)
+{
+    live2d_engine_share_view_t view;
+    if (!model) {
+        l2d_copy_share_view(out, NULL);
+        return;
+    }
+    live2d_engine_share_view(model->engine, &view);
+    l2d_copy_share_view(out, &view);
+}
+
+void l2d_instance_share_view(const l2d_instance_t *instance, l2d_share_view_t *out)
+{
+    live2d_engine_share_view_t view;
+    if (!instance) {
+        l2d_copy_share_view(out, NULL);
+        return;
+    }
+    live2d_engine_share_view(instance->engine, &view);
+    l2d_copy_share_view(out, &view);
+}
 
 static int l2d_surface_tight_bgra(const l2d_surface_t *surface)
 {
@@ -31,11 +162,15 @@ static int l2d_surface_tight_bgra(const l2d_surface_t *surface)
     return surface->buffer_size_bytes >= need;
 }
 
-l2d_status_t l2d_instance_create(size_t pool_bytes, l2d_instance_t **out)
+l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out)
 {
     l2d_instance_t *instance;
     l2d_status_t status;
-    if (!out || pool_bytes == 0) {
+    if (!out) {
+        return L2D_ERR_INVALID_ARG;
+    }
+    *out = NULL;
+    if (!model) {
         return L2D_ERR_INVALID_ARG;
     }
     instance = (l2d_instance_t *)l2d_port_alloc(sizeof(void *), sizeof(*instance));
@@ -43,11 +178,12 @@ l2d_status_t l2d_instance_create(size_t pool_bytes, l2d_instance_t **out)
         return L2D_ERR_NO_MEM;
     }
     memset(instance, 0, sizeof(*instance));
-    status = live2d_engine_create(pool_bytes, &instance->engine);
+    status = live2d_engine_clone_shared(model->engine, &instance->engine);
     if (status != L2D_OK) {
         l2d_port_free(instance);
         return status;
     }
+    instance->model = model;
     *out = instance;
     return L2D_OK;
 }
@@ -59,14 +195,6 @@ void l2d_instance_destroy(l2d_instance_t *instance)
     }
     live2d_engine_destroy(instance->engine);
     l2d_port_free(instance);
-}
-
-l2d_status_t l2d_instance_load_memory(l2d_instance_t *instance, const void *bytes, size_t size)
-{
-    if (!instance) {
-        return L2D_ERR_INVALID_ARG;
-    }
-    return live2d_engine_load(instance->engine, bytes, size);
 }
 
 bool l2d_instance_is_loaded(const l2d_instance_t *instance)

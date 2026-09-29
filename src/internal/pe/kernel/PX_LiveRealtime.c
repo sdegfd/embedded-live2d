@@ -128,9 +128,12 @@ px_void PX_LiveRealtimeFree(PX_LiveRealtime *realtime)
 	mp=realtime->mp;
 	if (mp)
 	{
-		for (i=0;i<realtime->axisCount;i++)
+		if (!realtime->sharedBaked)
 		{
-			PX_LiveRealtimeFreeAxis(mp,&realtime->axes[i]);
+			for (i=0;i<realtime->axisCount;i++)
+			{
+				PX_LiveRealtimeFreeAxis(mp,&realtime->axes[i]);
+			}
 		}
 		if (realtime->runtimeBlock)
 		{

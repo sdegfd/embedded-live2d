@@ -204,13 +204,242 @@ l2d_status_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine
     engine->pool = MP_Create(engine->pool_mem, (px_uint)pool_size);
     MP_NoCatchError(&engine->pool);
 
-    L2D_LOGI(TAG, "Live2D engine pool allocated in PSRAM: %u bytes",
-             (unsigned)pool_size);
+    L2D_LOGI(TAG, "allocated runtime pool: %u bytes", (unsigned)pool_size);
     *out_engine = engine;
     return L2D_OK;
 }
 
-/** 销毁Live2D引擎实例，释放PSRAM内存池和上下文。
+static size_t live2d_add_size(size_t a, size_t b, int *ok)
+{
+    if (!*ok || a > (size_t)-1 - b) {
+        *ok = 0;
+        return 0;
+    }
+    return a + b;
+}
+
+static size_t live2d_vector_payload(const px_vector *vec, int *ok)
+{
+    size_t count;
+    size_t node;
+    if (!*ok || !vec || vec->size <= 0 || vec->nodesize <= 0) {
+        return 0;
+    }
+    count = (size_t)vec->size;
+    node = (size_t)vec->nodesize;
+    if (count > (size_t)-1 / node) {
+        *ok = 0;
+        return 0;
+    }
+    return count * node;
+}
+
+static size_t live2d_instance_pool_size(const PX_LiveFramework *live, int *ok)
+{
+    size_t bytes = (256u * 1024u) + (size_t)PX_LIVE_REALTIME_RUNTIME_BUDGET_BYTES;
+    int i;
+    bytes = live2d_add_size(bytes, live2d_vector_payload(&live->layers, ok), ok);
+    bytes = live2d_add_size(bytes, live2d_vector_payload(&live->livetextures, ok), ok);
+    bytes = live2d_add_size(bytes, live2d_vector_payload(&live->liveAnimations, ok), ok);
+    for (i = 0; i < live->layers.size; ++i) {
+        const PX_LiveLayer *layer = PX_VECTORAT(PX_LiveLayer, &live->layers, i);
+        bytes = live2d_add_size(bytes, live2d_vector_payload(&layer->vertices, ok), ok);
+        bytes = live2d_add_size(bytes, 256u, ok);
+    }
+    for (i = 0; i < live->liveAnimations.size; ++i) {
+        const PX_LiveAnimation *animation =
+            PX_VECTORAT(PX_LiveAnimation, &live->liveAnimations, i);
+        bytes = live2d_add_size(bytes, live2d_vector_payload(&animation->framesMemPtr, ok), ok);
+        bytes = live2d_add_size(bytes, 256u, ok);
+    }
+    if (!*ok || bytes > ((size_t)-1) / 2u) {
+        *ok = 0;
+        return 0;
+    }
+    bytes *= 2u;
+    if (bytes < (1024u * 1024u)) {
+        bytes = 1024u * 1024u;
+    }
+    return (bytes + 63u) & ~(size_t)63u;
+}
+
+static int live2d_copy_vector_payload(px_memorypool *mp, px_vector *dest, const px_vector *src)
+{
+    px_int count = src ? src->size : 0;
+    px_int node = src ? src->nodesize : 0;
+    if (!src) {
+        return 0;
+    }
+    if (node <= 0) {
+        memset(dest, 0, sizeof(*dest));
+        return count <= 0;
+    }
+    if (!PX_VectorInitialize(mp, dest, node, count > 0 ? count : 0)) {
+        return 0;
+    }
+    if (count > 0) {
+        memcpy(dest->data, src->data, (size_t)count * (size_t)node);
+        dest->size = count;
+    }
+    return 1;
+}
+
+l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source, live2d_engine_t **out_engine)
+{
+    int ok = 1;
+    int initialized = 0;
+    size_t pool_size;
+    int i;
+    live2d_engine_t *engine;
+    l2d_status_t status;
+    if (!out_engine) {
+        return L2D_ERR_INVALID_ARG;
+    }
+    *out_engine = NULL;
+    if (!source || !source->loaded) {
+        return L2D_ERR_INVALID_ARG;
+    }
+    pool_size = live2d_instance_pool_size(&source->live, &ok);
+    if (!ok || pool_size == 0) {
+        return L2D_ERR_FAIL;
+    }
+    status = live2d_engine_create(pool_size, &engine);
+    if (status != L2D_OK) {
+        return status;
+    }
+    if (!PX_LiveFrameworkInitialize(&engine->pool, &engine->live, source->live.width,
+                                    source->live.height)) {
+        live2d_engine_destroy(engine);
+        return L2D_ERR_NO_MEM;
+    }
+    initialized = 1;
+    engine->live.sharesImmutablePayloads = PX_TRUE;
+    engine->live.realtime.sharedBaked = PX_TRUE;
+    memcpy(engine->live.id, source->live.id, sizeof(engine->live.id));
+    engine->live.pixelShader = source->live.pixelShader;
+    engine->live.fastNearestSampling = source->live.fastNearestSampling;
+    engine->live.renderScale = source->live.renderScale;
+    engine->live.showRange = PX_FALSE;
+    engine->live.showKeypoint = PX_FALSE;
+    engine->live.showlinker = PX_FALSE;
+    engine->live.showFocusLayer = PX_FALSE;
+    engine->live.showRootHelperLine = PX_FALSE;
+
+    for (i = 0; i < source->live.layers.size; ++i) {
+        const PX_LiveLayer *src_layer = PX_VECTORAT(PX_LiveLayer, &source->live.layers, i);
+        PX_LiveLayer layer = *src_layer;
+        PX_LiveLayer *dst_layer;
+        memset(&layer.vertices, 0, sizeof(layer.vertices));
+        memset(&layer.triangles, 0, sizeof(layer.triangles));
+        layer.rel_rotationTrigValid = PX_FALSE;
+        layer.rel_localRotationTrigValid = PX_FALSE;
+        if (!PX_VectorPushback(&engine->live.layers, &layer)) {
+            goto fail;
+        }
+        dst_layer = PX_VECTORLAST(PX_LiveLayer, &engine->live.layers);
+        if (!live2d_copy_vector_payload(&engine->pool, &dst_layer->vertices, &src_layer->vertices)) {
+            goto fail;
+        }
+        dst_layer->triangles = src_layer->triangles;
+        dst_layer->triangles.mp = NULL;
+    }
+
+    for (i = 0; i < source->live.livetextures.size; ++i) {
+        PX_LiveTexture texture = *PX_VECTORAT(PX_LiveTexture, &source->live.livetextures, i);
+        texture.Texture.MP = NULL;
+        if (!PX_VectorPushback(&engine->live.livetextures, &texture)) {
+            goto fail;
+        }
+    }
+
+    for (i = 0; i < source->live.liveAnimations.size; ++i) {
+        const PX_LiveAnimation *src_animation =
+            PX_VECTORAT(PX_LiveAnimation, &source->live.liveAnimations, i);
+        PX_LiveAnimation animation;
+        PX_LiveAnimation *dst_animation;
+        memset(&animation, 0, sizeof(animation));
+        memcpy(animation.id, src_animation->id, sizeof(animation.id));
+        if (!PX_VectorPushback(&engine->live.liveAnimations, &animation)) {
+            goto fail;
+        }
+        dst_animation = PX_VECTORLAST(PX_LiveAnimation, &engine->live.liveAnimations);
+        if (!live2d_copy_vector_payload(&engine->pool, &dst_animation->framesMemPtr,
+                                        &src_animation->framesMemPtr)) {
+            goto fail;
+        }
+    }
+
+    engine->live.realtime = source->live.realtime;
+    engine->live.realtime.mp = &engine->pool;
+    engine->live.realtime.sharedBaked = PX_TRUE;
+    engine->live.realtime.runtimeBlock = NULL;
+    engine->live.realtime.vertexOffsets = NULL;
+    engine->live.realtime.layerAccumulators = NULL;
+    engine->live.realtime.vertexAccumulators = NULL;
+    engine->live.realtime.runtimeLayerCount = 0;
+    engine->live.realtime.runtimeVertexCount = 0;
+    engine->live.realtime.runtimeBytes = 0;
+    engine->live.realtime.contributionValid = PX_FALSE;
+    engine->live.realtime.dirty = PX_TRUE;
+    memset(engine->live.realtime.appliedSample, 0, sizeof(engine->live.realtime.appliedSample));
+    engine->live.trigCacheHit = 0;
+    engine->live.trigCacheMiss = 0;
+    engine->loaded = true;
+    *out_engine = engine;
+    return L2D_OK;
+
+fail:
+    if (initialized) {
+        PX_LiveFrameworkFree(&engine->live);
+    }
+    live2d_engine_destroy(engine);
+    return L2D_ERR_NO_MEM;
+}
+
+void live2d_engine_share_view(const live2d_engine_t *engine, live2d_engine_share_view_t *out)
+{
+    int i;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!engine || !engine->loaded) {
+        return;
+    }
+    if (engine->pool.FreeSize <= engine->pool_size) {
+        out->pool_used = engine->pool_size - (size_t)engine->pool.FreeSize;
+    }
+    if (engine->live.livetextures.size > 0) {
+        const PX_LiveTexture *texture = PX_VECTORAT(PX_LiveTexture, &engine->live.livetextures, 0);
+        out->texture_pixels = texture->Texture.surfaceBuffer;
+    }
+    for (i = 0; i < engine->live.layers.size; ++i) {
+        const PX_LiveLayer *layer = PX_VECTORAT(PX_LiveLayer, &engine->live.layers, i);
+        if (layer->vertices.data && layer->vertices.size > 0) {
+            out->mutable_vertices = layer->vertices.data;
+            break;
+        }
+    }
+    for (i = 0; i < engine->live.layers.size; ++i) {
+        const PX_LiveLayer *layer = PX_VECTORAT(PX_LiveLayer, &engine->live.layers, i);
+        if (layer->triangles.data && layer->triangles.size > 0) {
+            out->triangle_indices = layer->triangles.data;
+            break;
+        }
+    }
+    if (engine->live.realtime.axisCount > 0) {
+        out->rt30_samples = engine->live.realtime.axes[0].samples;
+    }
+    if (engine->live.liveAnimations.size > 0) {
+        const PX_LiveAnimation *animation =
+            PX_VECTORAT(PX_LiveAnimation, &engine->live.liveAnimations, 0);
+        if (animation->framesMemPtr.size > 0 && animation->framesMemPtr.data) {
+            out->animation_frame = *PX_VECTORAT(px_void *, &animation->framesMemPtr, 0);
+        }
+    }
+}
+
+/** 销毁Live2D引擎实例，释放运行时内存池和上下文。
  *
  * @param engine  引擎实例指针（可为 NULL，此时函数无操作）
  */

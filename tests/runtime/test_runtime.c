@@ -1,5 +1,6 @@
 #include "l2d/l2d.h"
 #include "l2d_pe_port.h"
+#include "live2d_engine_internal.h"
 
 #include <openssl/sha.h>
 #include <stdio.h>
@@ -187,9 +188,15 @@ static void test_model(const char *path)
     void *model = NULL;
     size_t size = 0;
     char hex[65];
+    l2d_model_t *model_obj = NULL;
+    l2d_model_t *bad_model = NULL;
     l2d_instance_t *a = NULL;
     l2d_instance_t *b = NULL;
     l2d_instance_info_t info;
+    l2d_share_view_t model_share;
+    l2d_share_view_t share_a;
+    l2d_share_view_t share_b;
+    uint32_t crc_b_before;
     int handles[5];
     const char *ids[] = {"left_eye", "right_eye", "neck", "face", "mouth"};
     void *pixels;
@@ -208,11 +215,12 @@ static void test_model(const char *path)
     expect_true(strcmp(hex, FOUR_AXIS_SHA) == 0, "4-axis sha256");
     printf("MODEL sha=%s size=%zu\n", hex, size);
 
-    expect_true(l2d_instance_create(POOL_BYTES, &a) == L2D_OK, "create a");
     memcpy(truncated, model, sizeof(truncated));
-    expect_true(l2d_instance_load_memory(a, truncated, sizeof(truncated)) != L2D_OK, "truncated");
-    expect_true(!l2d_instance_is_loaded(a), "truncated not loaded");
-    expect_true(l2d_instance_load_memory(a, model, size) == L2D_OK, "load a");
+    expect_true(l2d_model_load_memory(truncated, sizeof(truncated), &model_obj) != L2D_OK,
+                "truncated");
+    expect_true(model_obj == NULL, "truncated not loaded");
+    expect_true(l2d_model_load_memory(model, size, &model_obj) == L2D_OK, "load model");
+    expect_true(l2d_instance_create(model_obj, &a) == L2D_OK, "create a");
     expect_true(l2d_instance_enter_rt30(a), "enter a");
     l2d_instance_info(a, &info);
     printf("INFO %dx%d layers=%d textures=%d anim=%d axes=%d\n", info.width, info.height,
@@ -231,6 +239,7 @@ static void test_model(const char *path)
     expect_true(pixels != NULL, "pixels");
     if (!pixels) {
         l2d_instance_destroy(a);
+        l2d_model_destroy(model_obj);
         free(model);
         return;
     }
@@ -284,13 +293,43 @@ static void test_model(const char *path)
     }
     expect_true(l2d_port_alloc_calls() == calls, "steady state zero alloc");
 
-    expect_true(l2d_instance_create(POOL_BYTES, &b) == L2D_OK, "create b");
-    expect_true(l2d_instance_load_memory(b, model, size) == L2D_OK, "load b");
+    expect_true(l2d_instance_create(model_obj, &b) == L2D_OK, "create b");
     expect_true(l2d_instance_enter_rt30(b), "enter b");
+    l2d_model_share_view(model_obj, &model_share);
+    l2d_instance_share_view(a, &share_a);
+    l2d_instance_share_view(b, &share_b);
+    printf("MEM model_bytes=%zu instance_a_bytes=%zu instance_b_bytes=%zu\n",
+           model_share.pool_used, share_a.pool_used, share_b.pool_used);
+    expect_true(model_share.texture_pixels &&
+                    model_share.texture_pixels == share_a.texture_pixels &&
+                    share_a.texture_pixels == share_b.texture_pixels,
+                "shared texture");
+    expect_true(model_share.triangle_indices &&
+                    model_share.triangle_indices == share_a.triangle_indices &&
+                    share_a.triangle_indices == share_b.triangle_indices,
+                "shared triangles");
+    expect_true(model_share.rt30_samples && model_share.rt30_samples == share_a.rt30_samples &&
+                    share_a.rt30_samples == share_b.rt30_samples,
+                "shared rt30 samples");
+    expect_true(model_share.animation_frame &&
+                    model_share.animation_frame == share_a.animation_frame &&
+                    share_a.animation_frame == share_b.animation_frame,
+                "shared animation");
+    expect_true(share_a.mutable_vertices && share_b.mutable_vertices &&
+                    share_a.mutable_vertices != share_b.mutable_vertices &&
+                    share_a.mutable_vertices != model_share.mutable_vertices,
+                "private vertices");
+    expect_true(share_a.pool_used * 2u < model_share.pool_used, "instance a is not a model copy");
+    expect_true(share_b.pool_used * 2u < model_share.pool_used, "instance b is not a model copy");
+    l2d_instance_reset_rt30(b);
+    crc_b_before = render_pose(b, pixels, w, h, "B_STATIC", &hit_b, &miss_b);
+    expect_true(crc_b_before == 0x6793bec7u, "b static");
     l2d_instance_reset_rt30(a);
     set_all(a, handles, 5, 14.5f);
     crc_again = render_pose(a, pixels, w, h, "A_AGAIN", &hit, &miss);
     expect_true(crc_again == crc_145, "instance a repeats");
+    crc_again = render_pose(b, pixels, w, h, "B_UNTOUCHED", &hit_b, &miss_b);
+    expect_true(crc_again == crc_b_before, "a pose did not change b");
     l2d_instance_reset_rt30(b);
     l2d_instance_set_axis_position(b, 2, 15.f, 32767);
     render_pose(b, pixels, w, h, "B_NECK", &hit_b, &miss_b);
@@ -303,22 +342,76 @@ static void test_model(const char *path)
     crc_again = render_pose(a, pixels, w, h, "A_AFTER_B", &hit, &miss);
     expect_true(crc_again == crc_145, "a pose survived b");
 
-    expect_true(l2d_instance_load_memory(a, truncated, sizeof(truncated)) != L2D_OK, "reload bad");
-    expect_true(!l2d_instance_is_loaded(a), "failed reload drops old model");
-    expect_true(l2d_instance_is_loaded(b), "b remains loaded");
+    expect_true(l2d_model_load_memory(truncated, sizeof(truncated), &bad_model) != L2D_OK,
+                "reload bad");
+    expect_true(bad_model == NULL, "failed load creates nothing");
+    expect_true(l2d_instance_is_loaded(a) && l2d_instance_is_loaded(b), "live model remains");
+    l2d_instance_reset_rt30(b);
+    crc_again = render_pose(b, pixels, w, h, "B_AFTER_BAD_LOAD", &hit_b, &miss_b);
+    expect_true(crc_again == crc_b_before, "failed load keeps b");
 
     l2d_port_alloc_trap(1);
     {
-        l2d_instance_t *c = NULL;
-        expect_true(l2d_instance_create(4096, &c) == L2D_ERR_NO_MEM, "alloc trap");
+        l2d_model_t *c = NULL;
+        l2d_instance_t *d = NULL;
+        expect_true(l2d_model_load_memory(model, size, &c) == L2D_ERR_NO_MEM, "alloc trap");
         expect_true(c == NULL, "trap creates nothing");
+        expect_true(l2d_instance_create(model_obj, &d) == L2D_ERR_NO_MEM, "instance trap");
+        expect_true(d == NULL, "trap instance is null");
     }
     l2d_port_alloc_trap(0);
 
     l2d_instance_destroy(a);
     l2d_instance_destroy(b);
+    l2d_model_destroy(model_obj);
     free(pixels);
     free(model);
+}
+
+static void test_release_live(const char *path)
+{
+    void *bytes = NULL;
+    size_t size = 0;
+    char hex[65];
+    l2d_model_t *model = NULL;
+    l2d_instance_t *a = NULL;
+    l2d_instance_t *b = NULL;
+    l2d_model_info_t info;
+    l2d_share_view_t model_share;
+    l2d_share_view_t share_a;
+    l2d_share_view_t share_b;
+    if (!path || read_file(path, &bytes, &size) != 0) {
+        fprintf(stderr, "FAIL release.live missing\n");
+        g_fails++;
+        return;
+    }
+    sha256_hex(bytes, size, hex);
+    expect_true(size == 3747332u, "release size");
+    expect_true(strcmp(hex, "5cfd67979fb365cc9edbca7b955aac391ebb39bca062fa855e4209faa02498b1") == 0,
+                "release sha");
+    expect_true(l2d_model_load_memory(bytes, size, &model) == L2D_OK, "release load");
+    l2d_model_info(model, &info);
+    printf("RELEASE layers=%d textures=%d anim=%d axes=%d\n", info.layer_count, info.texture_count,
+           info.animation_count, info.axis_count);
+    expect_true(info.layer_count == 34 && info.texture_count == 54 && info.animation_count == 32 &&
+                    info.axis_count == 0,
+                "release topology");
+    expect_true(l2d_instance_create(model, &a) == L2D_OK, "release instance a");
+    expect_true(l2d_instance_create(model, &b) == L2D_OK, "release instance b");
+    expect_true(l2d_instance_enter_rt30(a) && l2d_instance_enter_rt30(b), "release enter");
+    l2d_model_share_view(model, &model_share);
+    l2d_instance_share_view(a, &share_a);
+    l2d_instance_share_view(b, &share_b);
+    printf("RELEASE_MEM model_bytes=%zu instance_a_bytes=%zu instance_b_bytes=%zu\n",
+           model_share.pool_used, share_a.pool_used, share_b.pool_used);
+    expect_true(model_share.texture_pixels && model_share.texture_pixels == share_a.texture_pixels &&
+                    share_a.texture_pixels == share_b.texture_pixels,
+                "release shared texture");
+    expect_true(share_a.pool_used * 2u < model_share.pool_used, "release instance is smaller");
+    l2d_instance_destroy(a);
+    l2d_instance_destroy(b);
+    l2d_model_destroy(model);
+    free(bytes);
 }
 
 int main(void)
@@ -327,6 +420,7 @@ int main(void)
     test_pixels();
     test_roi();
     test_model(path);
+    test_release_live(L2D_RELEASE_LIVE);
     if (g_fails) {
         fprintf(stderr, "%d failure(s)\n", g_fails);
         return 1;

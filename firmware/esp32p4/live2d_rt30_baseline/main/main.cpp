@@ -46,7 +46,7 @@ static const char *TAG = "l2d_baseline";
 #define TASK_CORE         0
 #define TARGET_FPS        30
 #define FRAME_US          (1000000 / TARGET_FPS)
-#define ENGINE_POOL_BYTES (16 * 1024 * 1024)
+
 #define STATS_US          1000000
 #define WEIGHT_FULL_Q15   32767u
 
@@ -246,17 +246,10 @@ static void render_task(void *arg)
     model_sha_hex[64] = '\0';
     ESP_LOGI(TAG, "model SHA256=%s", model_sha_hex);
 
+    l2d_model_t *model = NULL;
     l2d_instance_t *instance = NULL;
-    l2d_status_t st = l2d_instance_create(ENGINE_POOL_BYTES, &instance);
-    if (st != L2D_OK) {
-        ESP_LOGE(TAG, "engine create failed: status=%d", (int)st);
-        sys_storage_free_file(model_data);
-        vTaskDelete(NULL);
-        return;
-    }
-
     int64_t load_begin = esp_timer_get_time();
-    st = l2d_instance_load_memory(instance, model_data, model_size);
+    l2d_status_t st = l2d_model_load_memory(model_data, model_size, &model);
     int64_t load_end = esp_timer_get_time();
 #if !CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
@@ -264,6 +257,14 @@ static void render_task(void *arg)
 #endif
     if (st != L2D_OK) {
         ESP_LOGE(TAG, "model import failed: status=%d", (int)st);
+        if (model_data) sys_storage_free_file(model_data);
+        vTaskDelete(NULL);
+        return;
+    }
+    st = l2d_instance_create(model, &instance);
+    if (st != L2D_OK) {
+        ESP_LOGE(TAG, "instance create failed: status=%d", (int)st);
+        l2d_model_destroy(model);
         if (model_data) sys_storage_free_file(model_data);
         vTaskDelete(NULL);
         return;
@@ -360,7 +361,7 @@ static void render_task(void *arg)
 
 #if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS || CONFIG_L2D_PROFILE_VISUAL
     l2d_axis_handles_t handles = {h_eye_l, h_eye_r, h_neck, h_face, h_mouth};
-    l2d_run_profile_suite(instance, &renderer, &buffer, &flush, handles,
+    l2d_run_profile_suite(&instance, &model, &renderer, &buffer, &flush, handles,
                           load_end - load_begin, model_sha_hex, model_data, model_size);
 #if CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);

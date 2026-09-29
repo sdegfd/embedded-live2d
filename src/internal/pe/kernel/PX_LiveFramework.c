@@ -3166,7 +3166,7 @@ px_void PX_LiveFrameworkDeleteLiveAnimationFrame(PX_LiveFramework *plive,PX_Live
 	if (index>=0&&index<pliveAnimation->framesMemPtr.size)
 	{
 		px_void *pFrameMemories=*PX_VECTORAT(px_void*,&pliveAnimation->framesMemPtr,index);
-		if(pFrameMemories)
+		if(pFrameMemories && !plive->sharesImmutablePayloads)
 			MP_Free(plive->mp,pFrameMemories);
 		PX_VectorErase(&pliveAnimation->framesMemPtr,index);
 	}

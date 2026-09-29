@@ -34,7 +34,9 @@ target_compile_options(l2d_runtime PRIVATE
 add_executable(l2d_test_runtime tests/runtime/test_runtime.c)
 target_link_libraries(l2d_test_runtime PRIVATE l2d_runtime m z crypto)
 target_link_options(l2d_test_runtime PRIVATE -Wl,--gc-sections)
-target_include_directories(l2d_test_runtime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal)
+target_include_directories(l2d_test_runtime PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine)
 target_compile_options(l2d_test_runtime PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off)
 
 set(L2D_4AXIS_BLOB 4174304b8374697b7dd8cfab034d5398f5243306)
@@ -47,7 +49,9 @@ add_custom_command(
     VERBATIM)
 add_custom_target(l2d_fixture_4axis DEPENDS ${L2D_4AXIS_PATH})
 add_dependencies(l2d_test_runtime l2d_fixture_4axis)
-target_compile_definitions(l2d_test_runtime PRIVATE L2D_FIXTURE_4AXIS="${L2D_4AXIS_PATH}")
+target_compile_definitions(l2d_test_runtime PRIVATE
+    L2D_FIXTURE_4AXIS="${L2D_4AXIS_PATH}"
+    L2D_RELEASE_LIVE="${CMAKE_CURRENT_SOURCE_DIR}/project/release.live")
 
 enable_testing()
 add_test(NAME l2d_runtime COMMAND l2d_test_runtime)

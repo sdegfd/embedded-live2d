@@ -1,33 +1,32 @@
 /**
  * One Live2D playback instance.
  *
- * Ownership: l2d_instance_create allocates the instance and one aligned pool
- * through the linked port allocator. The caller owns the object and destroys
- * it with l2d_instance_destroy. load_memory copies what it needs into the pool;
- * the caller may free the file bytes after a successful load.
- *
- * Load is not transactional. If a model is already loaded, a failed reload
- * leaves the instance empty. Load a replacement into a second instance and
- * switch only after that load returns L2D_OK.
+ * l2d_instance_create borrows an immutable model. The model must outlive the
+ * instance. Destroy the instance first, then the model. Two instances of one
+ * model share texture pixels, triangle indices, animation payloads, and baked
+ * RT30 tables. Vertices, parameters, trig caches, and RT30 accumulators are
+ * private to each instance.
  *
  * Threading: one instance must not be updated and rendered concurrently.
- * Two instances share no mutable state. The caller serializes each instance.
+ * Different instances share no mutable runtime state. The caller serializes
+ * each instance. The model may be read by those instances concurrently only
+ * when no instance is being created or destroyed.
  *
  * l2d_instance_update only advances pose. l2d_instance_render_current only
  * draws. Neither reads a clock. l2d_pipeline_frame is the compatible order
  * used by the ESP32-P4 example: one update plus one draw.
  * Calling render_current does not advance time.
  *
- * Steady state: after a successful load, update, render_current, and
- * pipeline_frame do not call the system allocator.
+ * Steady state: after create, update, render_current, and pipeline_frame do
+ * not call the system allocator.
  *
- * Errors: a failed call leaves the previous pose in place, except load,
- * which may have already released the previous model.
+ * Errors: a failed parameter write leaves the previous pose in place.
  */
 #ifndef L2D_INSTANCE_H
 #define L2D_INSTANCE_H
 
 #include "l2d_types.h"
+#include "l2d_model.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -72,15 +71,12 @@ typedef struct {
 } l2d_rt30_stats_t;
 
 /**
- * pool_bytes is the single arena used for the model and instance state.
- * 16 MiB matches the ESP32-P4 example. Smaller pools fail at load with
- * L2D_ERR_FAIL or L2D_ERR_NO_MEM instead of failing inside a frame.
+ * Create a playback instance that shares model's immutable resources.
+ * pool bytes reported by l2d_instance_info are the mutable arena only.
  */
-l2d_status_t l2d_instance_create(size_t pool_bytes, l2d_instance_t **out);
+l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out);
 void l2d_instance_destroy(l2d_instance_t *instance);
 
-l2d_status_t l2d_instance_load_memory(l2d_instance_t *instance, const void *bytes,
-                                      size_t size);
 bool l2d_instance_is_loaded(const l2d_instance_t *instance);
 void l2d_instance_info(const l2d_instance_t *instance, l2d_instance_info_t *out);
 

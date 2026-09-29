@@ -72,6 +72,26 @@ l2d_status_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine
 void live2d_engine_destroy(live2d_engine_t *engine);
 
 /**
+ * Mutable playback clone. Texture pixels, triangle indices, animation frame
+ * bytes, and baked RT30 tables alias the source. Vertices and axis runtime
+ * state are copied. The source must outlive the clone.
+ */
+l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source,
+                                        live2d_engine_t **out_engine);
+
+typedef struct {
+    const void *texture_pixels;
+    const void *triangle_indices;
+    const void *rt30_samples;
+    const void *animation_frame;
+    const void *mutable_vertices;
+    size_t pool_used;
+} live2d_engine_share_view_t;
+
+void live2d_engine_share_view(const live2d_engine_t *engine,
+                              live2d_engine_share_view_t *out);
+
+/**
  * Import a .live image. On failure after a previous model was loaded, the
  * previous model is already released and is_loaded is false.
  */

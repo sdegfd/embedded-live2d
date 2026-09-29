@@ -9,18 +9,20 @@
 
 void app_main(void)
 {
+    l2d_model_t *model = NULL;
     l2d_instance_t *instance = NULL;
-    l2d_status_t status = l2d_instance_create(64 * 1024, &instance);
+    l2d_status_t status = l2d_model_load_memory(NULL, 0, &model);
     uint32_t red = 0xFFFF0000u;
     uint8_t src[4];
     uint8_t dst[2];
-    if (status != L2D_OK) {
-        printf("L2D_S3_SMOKE_FAIL create=%d\n", (int)status);
+    if (status == L2D_OK || model != NULL) {
+        printf("L2D_S3_SMOKE_FAIL null model was accepted\n");
+        l2d_model_destroy(model);
         return;
     }
-    status = l2d_instance_load_memory(instance, NULL, 0);
-    if (status == L2D_OK || l2d_instance_is_loaded(instance)) {
-        printf("L2D_S3_SMOKE_FAIL null model was accepted\n");
+    status = l2d_instance_create(NULL, &instance);
+    if (status == L2D_OK || instance != NULL) {
+        printf("L2D_S3_SMOKE_FAIL null instance was accepted\n");
         l2d_instance_destroy(instance);
         return;
     }
@@ -31,9 +33,7 @@ void app_main(void)
     if (l2d_bgra8888_to_rgb565(red) != 0xF800 ||
         l2d_convert_bgra_to_rgb565(src, 4, sizeof(src), dst, 2, sizeof(dst), 1, 1) != L2D_OK) {
         printf("L2D_S3_SMOKE_FAIL rgb565\n");
-        l2d_instance_destroy(instance);
         return;
     }
-    l2d_instance_destroy(instance);
     printf("L2D_S3_SMOKE_OK\n");
 }

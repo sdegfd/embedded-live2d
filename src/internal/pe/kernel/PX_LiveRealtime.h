@@ -190,6 +190,8 @@ typedef struct
 	PX_LiveRealtimeVertexAccumulator *vertexAccumulators;
 	PX_LiveRealtimeAxis axes[PX_LIVE_REALTIME_MAX_AXES];
 	PX_LiveRealtimeAppliedSample appliedSample[PX_LIVE_REALTIME_MAX_AXES];
+	/* Bindings, vertex index lists, and baked samples are owned by the model. */
+	px_bool sharedBaked;
 }PX_LiveRealtime;
 
 struct _PX_LiveFramework;

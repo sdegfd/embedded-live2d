@@ -357,6 +357,9 @@ typedef struct _PX_LiveFramework
 	px_int32 reg_bp;                         /**< 断点寄存器 */
 	px_dword trigCacheHit;                  /**< Hits for the last update on this instance */
 	px_dword trigCacheMiss;                 /**< Misses for the last update on this instance */
+	/* Instance clones alias model-owned texture pixels, triangle indices,
+	 * animation payloads, and baked RT30 tables. Free must not release them. */
+	px_bool sharesImmutablePayloads;
 }PX_LiveFramework;
 
 

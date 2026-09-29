@@ -82,9 +82,10 @@ static void emit_correctness(l2d_instance_t *instance, live2d_renderer_t *render
 static bool set_axis(l2d_instance_t *instance, int handle, float sample) {
     return handle >= 0 && l2d_instance_set_axis_position(instance, handle, sample, 32767);
 }
-static void run_correctness(l2d_instance_t *instance, live2d_renderer_t *renderer,
-    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t h,
-    const char *model_sha256, const void *model_data, size_t model_size) {
+static void run_correctness(l2d_instance_t **instance_io, l2d_model_t **model_io,
+    live2d_renderer_t *renderer, sys_display_buffer_t *buffer, sys_display_flush_t *flush,
+    l2d_axis_handles_t h, const char *model_sha256, const void *model_data, size_t model_size) {
+    l2d_instance_t *instance = *instance_io;
     struct pose_t { const char *name; int axis; float sample; };
     static const pose_t poses[] = {
         {"STATIC", -2, 0}, {"ALL_14_5", -1, 14.5f}, {"ALL_29", -1, 29},
@@ -165,10 +166,23 @@ static void run_correctness(l2d_instance_t *instance, live2d_renderer_t *rendere
     emit_correctness(instance, renderer, buffer, flush, "RESET_AFTER", pose_ok);
     l2d_instance_reset_rt30(instance);
     emit_correctness(instance, renderer, buffer, flush, "RELOAD_BEFORE", true);
-    bool reloaded = model_data && model_size &&
-                    l2d_instance_load_memory(instance, model_data, model_size) == L2D_OK &&
-                    l2d_instance_enter_rt30(instance);
-    if (reloaded) l2d_instance_reset_rt30(instance);
+    l2d_model_t *fresh_model = NULL;
+    l2d_instance_t *fresh_instance = NULL;
+    bool reloaded = model_data && model_size && model_io &&
+                    l2d_model_load_memory(model_data, model_size, &fresh_model) == L2D_OK &&
+                    l2d_instance_create(fresh_model, &fresh_instance) == L2D_OK &&
+                    l2d_instance_enter_rt30(fresh_instance);
+    if (reloaded) {
+        l2d_instance_destroy(instance);
+        l2d_model_destroy(*model_io);
+        instance = fresh_instance;
+        *instance_io = fresh_instance;
+        *model_io = fresh_model;
+        l2d_instance_reset_rt30(instance);
+    } else {
+        l2d_instance_destroy(fresh_instance);
+        l2d_model_destroy(fresh_model);
+    }
     emit_correctness(instance, renderer, buffer, flush, "RELOAD_STATIC", reloaded);
     pose_ok = reloaded;
     for (int i = 0; i < 4; ++i) pose_ok = set_axis(instance, axis_handles[i], 14.5f) && pose_ok;
@@ -559,33 +573,39 @@ static void run_visual(l2d_instance_t *instance, live2d_renderer_t *renderer,
 }
 #endif
 
-void l2d_run_profile_suite(l2d_instance_t *instance, live2d_renderer_t *renderer,
-    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
-    int64_t load_us, const char *model_sha256, const void *model_data, size_t model_size) {
+void l2d_run_profile_suite(l2d_instance_t **instance, l2d_model_t **model,
+    live2d_renderer_t *renderer, sys_display_buffer_t *buffer, sys_display_flush_t *flush,
+    l2d_axis_handles_t handles, int64_t load_us, const char *model_sha256,
+    const void *model_data, size_t model_size) {
 #if CONFIG_L2D_PROFILE_CORRECTNESS
     (void)load_us;
-    run_correctness(instance, renderer, buffer, flush, handles, model_sha256, model_data, model_size);
+    run_correctness(instance, model, renderer, buffer, flush, handles, model_sha256, model_data,
+                    model_size);
     return;
 #elif CONFIG_L2D_PROFILE_VISUAL
-    run_visual(instance, renderer, buffer, flush, handles, load_us, model_sha256, model_size);
+    (void)model;
+    run_visual(*instance, renderer, buffer, flush, handles, load_us, model_sha256, model_size);
     return;
 #elif CONFIG_L2D_PROFILE_DETAIL
     (void)load_us;
-    run_detail(instance, renderer, buffer, flush, handles, model_sha256, model_size);
+    (void)model;
+    run_detail(*instance, renderer, buffer, flush, handles, model_sha256, model_size);
     return;
 #elif !CONFIG_L2D_PROFILE_TIMING
-    (void)instance; (void)renderer; (void)buffer; (void)flush; (void)handles;
+    (void)instance; (void)model; (void)renderer; (void)buffer; (void)flush; (void)handles;
     (void)load_us; (void)model_sha256; (void)model_size;
     return;
 #else
+    l2d_instance_t *playback = *instance;
+    (void)model;
     ring = (sample_t *)heap_caps_calloc(MEASURE, sizeof(sample_t), MALLOC_CAP_SPIRAM);
     uint32_t *scratch = (uint32_t *)heap_caps_malloc(MEASURE*sizeof(uint32_t), MALLOC_CAP_SPIRAM);
     if (!ring || !scratch) { ESP_LOGE(TAG, "profile ring allocation failed"); return; }
     FILE *csv = stdout;
     FILE *summary = stdout;
     FILE *metadata = stdout;
-    l2d_instance_info_t info; l2d_instance_info(instance, &info);
-    l2d_mesh_counts_t geo; l2d_instance_mesh_counts(instance, &geo);
+    l2d_instance_info_t info; l2d_instance_info(playback, &info);
+    l2d_mesh_counts_t geo; l2d_instance_mesh_counts(playback, &geo);
     fputs("L2D_META_BEGIN\n", metadata);
     fprintf(metadata, "esp_commit=%s\nlive2d_commit=%s\n"
         "idf=%s\nchip=ESP32-P4\ncpu_mhz=%d\npsram_mhz=%d\n"
@@ -604,7 +624,7 @@ void l2d_run_profile_suite(l2d_instance_t *instance, live2d_renderer_t *renderer
         buffer->width, buffer->height, model_sha256, (unsigned)model_size,
         (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
-        l2d_instance_axis_count(instance), CONFIG_L2D_PROFILE_STAGE,
+        l2d_instance_axis_count(playback), CONFIG_L2D_PROFILE_STAGE,
         CONFIG_L2D_PROFILE_ROI_DIAG ? "roi_diagnostic" :
             (CONFIG_L2D_PROFILE_FINE ? "fine_diagnostic" : "timing"),
         CONFIG_L2D_SRM_ROI,
@@ -642,7 +662,7 @@ void l2d_run_profile_suite(l2d_instance_t *instance, live2d_renderer_t *renderer
 #endif
         active_backend = backend;
     for (int scale : {100}) {
-        l2d_instance_set_render_scale(instance, scale/100.0f);
+        l2d_instance_set_render_scale(playback, scale/100.0f);
         for (int scene_num = 0; scene_num < COUNT; ++scene_num) {
             scenario_t scene = (scenario_t)scene_num;
             if (scene == MOUTH && handles.mouth < 0) continue;
@@ -650,11 +670,11 @@ void l2d_run_profile_suite(l2d_instance_t *instance, live2d_renderer_t *renderer
             if (CONFIG_L2D_PROFILE_STAGE == 1 && scene != STATIC && scene != EYE_L && scene != NECK && scene != FACE && scene != MULTI) continue;
             if (CONFIG_L2D_PROFILE_STAGE == 2 && scene != STATIC && scene != MULTI) continue;
             for (int round = 1; round <= ROUNDS; ++round) {
-                l2d_instance_reset_rt30(instance);
+                l2d_instance_reset_rt30(playback);
                 for (int i = 0; i < WARMUP; ++i)
-                    run_frame(instance, renderer, buffer, flush, handles, scene, round, i, scale, NULL);
+                    run_frame(playback, renderer, buffer, flush, handles, scene, round, i, scale, NULL);
                 for (int i = 0; i < MEASURE; ++i) {
-                    run_frame(instance, renderer, buffer, flush, handles, scene, round,
+                    run_frame(playback, renderer, buffer, flush, handles, scene, round,
                               i+WARMUP, scale, &ring[i]);
                 }
                 for (int i = 0; i < MEASURE; ++i) write_row(csv, &ring[i]);
