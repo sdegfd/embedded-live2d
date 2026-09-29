@@ -410,6 +410,26 @@ static px_void PX_LiveFramework_RenderListPixelShader(px_surface *psurface,px_in
 	}
 }
 
+/* BGRA8888 word blend. Channel math matches the byte formula exactly. */
+static inline px_dword l2d_blend_bgra(px_dword dst, px_dword src)
+{
+	px_dword sa = src >> 24;
+	px_dword sb = src & 255u;
+	px_dword sg = (src >> 8) & 255u;
+	px_dword sr = (src >> 16) & 255u;
+	px_dword da = dst >> 24;
+	px_dword db = dst & 255u;
+	px_dword dg = (dst >> 8) & 255u;
+	px_dword dr = (dst >> 16) & 255u;
+	px_dword inv = 256u - sa;
+	px_dword sp1 = sa + 1u;
+	px_dword ob = (inv * db + sb * sp1) >> 8;
+	px_dword og = (inv * dg + sg * sp1) >> 8;
+	px_dword orr = (inv * dr + sr * sp1) >> 8;
+	px_dword oa = 255u - (((256u - da) * (255u - sa)) >> 8);
+	return ob | (og << 8) | (orr << 16) | (oa << 24);
+}
+
 /* ── 扫描线渲染函数 ─────────────────────────────── */
 
 /**
@@ -553,22 +573,18 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 					continue;
 				}
 				DETAIL_SAMPLE_IN();
-				color = PX_SURFACECOLOR(ptexture, tx, ty);
-				DETAIL_FRAGMENT(ix,iy,color._argb.a,PX_FALSE);
-
-				if (color._argb.a == 0xff)
 				{
-					*dst = color;
-				}
-				else if (color._argb.a)
-				{
-					dst->_argb.r = (px_uchar)(((256 - color._argb.a) * dst->_argb.r +
-						color._argb.r * (color._argb.a + 1)) >> 8);
-					dst->_argb.g = (px_uchar)(((256 - color._argb.a) * dst->_argb.g +
-						color._argb.g * (color._argb.a + 1)) >> 8);
-					dst->_argb.b = (px_uchar)(((256 - color._argb.a) * dst->_argb.b +
-						color._argb.b * (color._argb.a + 1)) >> 8);
-					dst->_argb.a = 255 - (((256 - dst->_argb.a) * (255 - color._argb.a)) >> 8);
+					px_dword src = ptexture->surfaceBuffer[(px_uint)ty * (px_uint)texture_width + (px_uint)tx]._argb.ucolor;
+					px_dword a = src >> 24;
+					DETAIL_FRAGMENT(ix, iy, (px_int)a, PX_FALSE);
+					if (a == 255u)
+					{
+						dst->_argb.ucolor = src;
+					}
+					else if (a)
+					{
+						dst->_argb.ucolor = l2d_blend_bgra(dst->_argb.ucolor, src);
+					}
 				}
 
 				s_fp += s_fp_step;
