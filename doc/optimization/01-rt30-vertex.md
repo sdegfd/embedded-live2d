@@ -30,4 +30,17 @@
 
 ## 正确性、环境与限制
 
-两次 timing 分别取得 250 帧，未见 panic；[step1 serial](phase1_step1_timing/serial.log) 和 [step2 serial](phase1_step2_timing/serial.log) 保留原始输出。模型 SHA256、CPU/PSRAM、ESP-IDF、任务 Core、显示配置与 Phase 0 相同，元数据分别见 [step1 metadata](phase1_step1_timing/metadata.txt) 与 [step2 metadata](phase1_step2_timing/metadata.txt)。第一项只省下约 0.07 ms，远未把动态层级/顶点从约 4.9 ms 降到 2–3 ms；不应据此承诺更高 FPS。第二项在其他大量 stretch 的模型上可能不同，但当前基线明确不保留。下一步需细分 keypoint、visual transform、stretch、vertex transform、UV update，定位剩余约 4.8 ms，之后才考虑更大的 transform cache。
+两次 timing 分别取得 250 帧，未见 panic；[step1 serial](phase1_step1_timing/serial.log) 和 [step2 serial](phase1_step2_timing/serial.log) 保留原始输出。模型 SHA256、CPU/PSRAM、ESP-IDF、任务 Core、显示配置与 Phase 0 相同，元数据分别见 [step1 metadata](phase1_step1_timing/metadata.txt) 与 [step2 metadata](phase1_step2_timing/metadata.txt)。第一项只省下约 0.07 ms，远未把动态层级/顶点从约 4.9 ms 降到 2–3 ms；不应据此承诺更高 FPS。第二项在其他大量 stretch 的模型上可能不同，但当前基线明确不保留。
+
+## 超过 3 ms 后的细分诊断
+
+按计划另外编译 `CONFIG_L2D_PROFILE_FINE=y`，仍按每场景 5 帧预热、50 帧采样、1 轮跑 Stage 1 五场景；获得 250 条诊断帧，没有 panic。[fine metadata](phase1_fine/metadata.txt) 明确标记 `profile_mode=fine_diagnostic`，[fine frames](phase1_fine/frames.csv) 与 [fine summary](phase1_fine/summary.csv) 保存原始值。该模式在顶点循环内增加计时调用，**不能把其绝对耗时与正式 timing 比较**；它只用于定位内部比例。
+
+| 动态场景 | keypoint | visual transform | stretch | vertex transform | UV update | 诊断物理总计 |
+|---|---:|---:|---:|---:|---:|---:|
+| EYE_L_SWEEP | 80 µs | 3609 µs | 234 µs | 430 µs | 73 µs | 5122 µs |
+| NECK_SWEEP | 85 µs | 3828 µs | 232 µs | 433 µs | 70 µs | 5332 µs |
+| FACE_SWEEP | 83 µs | 3614 µs | 233 µs | 429 µs | 71 µs | 5118 µs |
+| MULTI_AXIS | 81 µs | 3822 µs | 236 µs | 434 µs | 72 µs | 5333 µs |
+
+STATIC 姿态 revision 不变，整个层级/顶点更新跳过，所以这些细分值为 0。动态姿态的 visual transform 约占诊断物理总时长 70%–72%；这里每层沿祖先链调用 `PX_PointRotate`，比 child stretch 更值得下一轮研究。细分项和总计差额包含旋转缓存刷新、循环调度和计时本身。下一轮应先核对视觉变换的三角函数调用次数、父链复用机会与数值一致性，再决定是否做局部 transform cache；Phase 1 本轮没有提前重构。
