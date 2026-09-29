@@ -264,10 +264,13 @@ static void render_task(void *arg)
     int64_t load_begin = esp_timer_get_time();
     ret = live2d_engine_load(engine, model_data, model_size);
     int64_t load_end = esp_timer_get_time();
+#if !CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
     model_data = NULL;
+#endif
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "model import failed: %s", esp_err_to_name(ret));
+        if (model_data) sys_storage_free_file(model_data);
         vTaskDelete(NULL);
         return;
     }
@@ -364,7 +367,11 @@ static void render_task(void *arg)
 #if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS || CONFIG_L2D_PROFILE_VISUAL
     l2d_axis_handles_t handles = {h_eye_l, h_eye_r, h_neck, h_face, h_mouth};
     l2d_run_profile_suite(engine, &renderer, &buffer, &flush, handles,
-                          load_end - load_begin, model_sha_hex, model_size);
+                          load_end - load_begin, model_sha_hex, model_data, model_size);
+#if CONFIG_L2D_PROFILE_CORRECTNESS
+    sys_storage_free_file(model_data);
+    model_data = NULL;
+#endif
 #endif
 
     baseline_stats_t stats = {};

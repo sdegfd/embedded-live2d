@@ -102,10 +102,59 @@ static px_float PX_LiveFrameworkClampUV(px_float uv)
 
 /* ── 旋转变换辅助函数 ───────────────────────────── */
 
-/** 设置图层的当前旋转角度，同时更新缓存的 sin/cos 值 */
+static px_dword s_trigCacheHit;
+static px_dword s_trigCacheMiss;
+
+px_void PX_LiveFrameworkGetTrigCacheFrame(px_dword *hit, px_dword *miss)
+{
+	if (hit) *hit=s_trigCacheHit;
+	if (miss) *miss=s_trigCacheMiss;
+}
+
+/** 与 PX_MatrixRotateZ + PX_PointMulMatrix 相同的乘加顺序，sin/cos 由调用方提供。 */
+static px_point PX_LiveFrameworkRotatePointFromSinCos(px_point point, px_float cos_angle, px_float sin_angle)
+{
+	px_matrix mat;
+	mat._11=cos_angle; mat._12=sin_angle; mat._13=0.0f; mat._14=0.0f;
+	mat._21=-sin_angle; mat._22=cos_angle; mat._23=0.0f; mat._24=0.0f;
+	mat._31=0.0f; mat._32=0.0f; mat._33=1.0f; mat._34=0.0f;
+	mat._41=0.0f; mat._42=0.0f; mat._43=0.0f; mat._44=1.0f;
+	return PX_PointMulMatrix(point, mat);
+}
+
+static px_void PX_LiveFrameworkEnsureLocalRotationTrig(PX_LiveLayer *pLayer)
+{
+	if (pLayer->rel_localRotationTrigValid &&
+		pLayer->rel_cachedLocalRotationAngle==pLayer->rel_currentLocalRotationAngle)
+	{
+		s_trigCacheHit++;
+		return;
+	}
+	s_trigCacheMiss++;
+	pLayer->rel_cachedLocalRotationAngle=pLayer->rel_currentLocalRotationAngle;
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagPush(PX_VISUAL_SCOPE_SET);
+#endif
+	pLayer->rel_currentLocalRotationSin=PX_sin_angle(pLayer->rel_currentLocalRotationAngle);
+	pLayer->rel_currentLocalRotationCos=PX_cos_angle(pLayer->rel_currentLocalRotationAngle);
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagPop();
+#endif
+	pLayer->rel_localRotationTrigValid=PX_TRUE;
+}
+
+/** 设置图层的当前旋转角度；角度完全相等时复用已有 sin/cos。 */
 static px_void PX_LiveFrameworkSetLayerCurrentRotationAngle(PX_LiveLayer *pLayer, px_float angle)
 {
+	if (pLayer->rel_rotationTrigValid && pLayer->rel_cachedRotationAngle==angle)
+	{
+		pLayer->rel_currentRotationAngle = angle;
+		s_trigCacheHit++;
+		return;
+	}
+	s_trigCacheMiss++;
 	pLayer->rel_currentRotationAngle = angle;
+	pLayer->rel_cachedRotationAngle = angle;
 #if CONFIG_L2D_PROFILE_VISUAL
 	PX_VisualDiagPush(PX_VISUAL_SCOPE_SET);
 #endif
@@ -114,6 +163,7 @@ static px_void PX_LiveFrameworkSetLayerCurrentRotationAngle(PX_LiveLayer *pLayer
 #if CONFIG_L2D_PROFILE_VISUAL
 	PX_VisualDiagPop();
 #endif
+	pLayer->rel_rotationTrigValid=PX_TRUE;
 }
 
 /** 使用预计算的三角函数值进行二维旋转（优化：避免重复调用 sin/cos） */
@@ -1067,6 +1117,8 @@ px_void PX_LiveFrameworkReset(PX_LiveFramework *plive)
 		px_int j;
 		PX_LiveLayer *pLayer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
 		pLayer->rel_beginRotationAngle=0;
+		pLayer->rel_rotationTrigValid=PX_FALSE;
+		pLayer->rel_localRotationTrigValid=PX_FALSE;
 		PX_LiveFrameworkSetLayerCurrentRotationAngle(pLayer, 0);
 		pLayer->rel_endRotationAngle=0;
 
@@ -1468,10 +1520,19 @@ static px_void PX_LiveFramework_GetLayerVisualTransform(PX_LiveFramework *pLive,
 		t_enter=esp_timer_get_time();
 #endif
 		px_point pivot=pCurrent->currentKeyPoint;
+		if (!pCurrent->rel_rotationTrigValid ||
+			pCurrent->rel_cachedRotationAngle!=pCurrent->rel_currentRotationAngle)
+		{
+			PX_LiveFrameworkSetLayerCurrentRotationAngle(pCurrent, pCurrent->rel_currentRotationAngle);
+		}
+		PX_LiveFrameworkEnsureLocalRotationTrig(pCurrent);
 #if CONFIG_L2D_PROFILE_VISUAL
 		t_after_pivot=esp_timer_get_time();
 #endif
-		px_point localTranslation=PX_PointRotate(pCurrent->rel_currentLocalTranslation,pCurrent->rel_currentRotationAngle);
+		px_point localTranslation=PX_LiveFrameworkRotatePointFromSinCos(
+			pCurrent->rel_currentLocalTranslation,
+			pCurrent->rel_currentRotationCos,
+			pCurrent->rel_currentRotationSin);
 #if CONFIG_L2D_PROFILE_VISUAL
 		t_after_local=esp_timer_get_time();
 #endif
@@ -1479,7 +1540,10 @@ static px_void PX_LiveFramework_GetLayerVisualTransform(PX_LiveFramework *pLive,
 #if CONFIG_L2D_PROFILE_VISUAL
 		t_before_rel=esp_timer_get_time();
 #endif
-		relative=PX_PointRotate(relative,pCurrent->rel_currentLocalRotationAngle);
+		relative=PX_LiveFrameworkRotatePointFromSinCos(
+			relative,
+			pCurrent->rel_currentLocalRotationCos,
+			pCurrent->rel_currentLocalRotationSin);
 #if CONFIG_L2D_PROFILE_VISUAL
 		t_after_rel=esp_timer_get_time();
 #endif
@@ -2182,6 +2246,8 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 	{
 		return;
 	}
+	s_trigCacheHit=0;
+	s_trigCacheMiss=0;
 #if CONFIG_L2D_PROFILE_VISUAL
 	PX_LiveVisualDiagBeginFrame();
 #endif

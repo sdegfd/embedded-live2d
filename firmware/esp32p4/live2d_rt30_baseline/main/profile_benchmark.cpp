@@ -37,6 +37,7 @@
 #endif
 
 static const char *TAG = "l2d_profile";
+static int active_backend;
 static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
 
 #if CONFIG_L2D_PROFILE_STAGE == 2
@@ -53,9 +54,26 @@ static bool select_backend(live2d_renderer_t *renderer, int backend) {
 #endif
 
 #if CONFIG_L2D_PROFILE_CORRECTNESS
+static uint32_t correctness_frame_id;
+static void emit_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer,
+    sys_display_buffer_t *buffer, sys_display_flush_t *flush, const char *name, bool ok) {
+    buffer->frame_id = ++correctness_frame_id;
+    esp_err_t render_ret = ok ? live2d_renderer_render_frame(renderer, engine, 33) : ESP_FAIL;
+    esp_err_t submit_ret = render_ret == ESP_OK ? sys_display_flush_submit(flush) : ESP_FAIL;
+    uint32_t argb_crc = render_ret == ESP_OK
+        ? esp_rom_crc32_le(0, (const uint8_t *)buffer->render_argb8888, (uint32_t)buffer->render_bytes) : 0;
+    uint32_t rgb_crc = render_ret == ESP_OK
+        ? esp_rom_crc32_le(0, (const uint8_t *)buffer->frame_rgb565, (uint32_t)buffer->frame_bytes) : 0;
+    printf("L2D_CORRECTNESS,%s,100,%" PRIu32 ",%08" PRIx32 ",%08" PRIx32 ",%d,%d,%d\n",
+           name, buffer->frame_id, argb_crc, rgb_crc,
+           render_ret == ESP_OK, submit_ret == ESP_OK, active_backend);
+}
+static bool set_axis(live2d_engine_t *engine, int handle, float sample) {
+    return handle >= 0 && live2d_engine_set_axis_position(engine, handle, sample, 32767);
+}
 static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer,
     sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t h,
-    const char *model_sha256, size_t model_size) {
+    const char *model_sha256, const void *model_data, size_t model_size) {
     struct pose_t { const char *name; int axis; float sample; };
     static const pose_t poses[] = {
         {"STATIC", -2, 0}, {"ALL_14_5", -1, 14.5f}, {"ALL_29", -1, 29},
@@ -64,8 +82,16 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
         {"NECK_1", 2, 1}, {"NECK_15", 2, 15}, {"NECK_29", 2, 29},
         {"FACE_5", 3, 5}, {"FACE_15", 3, 15}, {"FACE_25", 3, 25},
     };
+    static const float fractions[] = {
+        0.f, 0.25f, 0.5f, 1.f, 3.25f, 7.5f, 14.5f, 14.75f, 15.25f, 22.75f, 28.5f, 29.f
+    };
+    static const char *const fraction_names[] = {
+        "0", "0_25", "0_5", "1", "3_25", "7_5", "14_5", "14_75", "15_25", "22_75", "28_5", "29"
+    };
+    static const char *const axis_names[] = {"EYE_L", "EYE_R", "NECK", "FACE"};
+    const int axis_handles[] = {h.eye_l, h.eye_r, h.neck, h.face};
     const int handles[] = {h.eye_l, h.eye_r, h.neck, h.face, h.mouth};
-    uint32_t correctness_frame_id = 0;
+    char name[64];
     live2d_engine_set_render_scale(engine, 1.0f);
     printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
            "mode=correctness\nscale_q100=100\nL2D_META_END\n",
@@ -79,6 +105,8 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
             continue;
         }
 #endif
+        active_backend = backend;
+        correctness_frame_id = 0;
     for (const pose_t &pose : poses) {
         live2d_engine_reset_realtime(engine);
         bool ok = true;
@@ -87,20 +115,53 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
                 if (handles[i] >= 0)
                     ok = live2d_engine_set_axis_position(engine, handles[i], pose.sample, 32767) && ok;
         } else if (pose.axis >= 0) {
-            ok = handles[pose.axis] >= 0 &&
-                 live2d_engine_set_axis_position(engine, handles[pose.axis], pose.sample, 32767);
+            ok = set_axis(engine, handles[pose.axis], pose.sample);
         }
-        buffer->frame_id = ++correctness_frame_id;
-        esp_err_t render_ret = ok ? live2d_renderer_render_frame(renderer, engine, 33) : ESP_FAIL;
-        esp_err_t submit_ret = render_ret == ESP_OK ? sys_display_flush_submit(flush) : ESP_FAIL;
-        uint32_t argb_crc = render_ret == ESP_OK
-            ? esp_rom_crc32_le(0, (const uint8_t *)buffer->render_argb8888, (uint32_t)buffer->render_bytes) : 0;
-        uint32_t rgb_crc = render_ret == ESP_OK
-            ? esp_rom_crc32_le(0, (const uint8_t *)buffer->frame_rgb565, (uint32_t)buffer->frame_bytes) : 0;
-        printf("L2D_CORRECTNESS,%s,100,%" PRIu32 ",%08" PRIx32 ",%08" PRIx32 ",%d,%d,%d\n",
-               pose.name, buffer->frame_id, argb_crc, rgb_crc,
-               render_ret == ESP_OK, submit_ret == ESP_OK, backend);
+        emit_correctness(engine, renderer, buffer, flush, pose.name, ok);
     }
+    for (int axis = 0; axis < 4; ++axis) {
+        for (size_t i = 0; i < sizeof(fractions) / sizeof(fractions[0]); ++i) {
+            snprintf(name, sizeof(name), "FRAC_%s_%s", axis_names[axis], fraction_names[i]);
+            live2d_engine_reset_realtime(engine);
+            emit_correctness(engine, renderer, buffer, flush, name,
+                             set_axis(engine, axis_handles[axis], fractions[i]));
+        }
+    }
+    const float seq_a = 10.5f, seq_b = 22.75f, seq_c = 3.25f;
+    const char *hist_names[] = {"AAA_1", "AAA_2", "AAA_3", "ABA_1", "ABA_2", "ABA_3",
+                                 "ABCBA_1", "ABCBA_2", "ABCBA_3", "ABCBA_4", "ABCBA_5"};
+    const float hist_samples[] = {seq_a, seq_a, seq_a, seq_a, seq_b, seq_a,
+                                   seq_a, seq_b, seq_c, seq_b, seq_a};
+    live2d_engine_reset_realtime(engine);
+    for (size_t i = 0; i < sizeof(hist_samples) / sizeof(hist_samples[0]); ++i) {
+        snprintf(name, sizeof(name), "HIST_NECK_%s", hist_names[i]);
+        emit_correctness(engine, renderer, buffer, flush, name, set_axis(engine, h.neck, hist_samples[i]));
+    }
+    live2d_engine_reset_realtime(engine);
+    emit_correctness(engine, renderer, buffer, flush, "DEP_NECK_A", set_axis(engine, h.neck, 8.5f));
+    emit_correctness(engine, renderer, buffer, flush, "DEP_NECK_A_EYE", set_axis(engine, h.eye_l, 12.25f));
+    emit_correctness(engine, renderer, buffer, flush, "DEP_NECK_B_EYE", set_axis(engine, h.neck, 18.f));
+    emit_correctness(engine, renderer, buffer, flush, "DEP_NECK_A_EYE_AGAIN", set_axis(engine, h.neck, 8.5f));
+    emit_correctness(engine, renderer, buffer, flush, "DEP_NECK_A_AGAIN", set_axis(engine, h.eye_l, 0.f));
+    live2d_engine_reset_realtime(engine);
+    bool pose_ok = true;
+    for (int i = 0; i < 4; ++i) pose_ok = set_axis(engine, axis_handles[i], 14.5f) && pose_ok;
+    emit_correctness(engine, renderer, buffer, flush, "RESET_BEFORE", pose_ok);
+    live2d_engine_reset_realtime(engine);
+    emit_correctness(engine, renderer, buffer, flush, "RESET_STATIC", true);
+    pose_ok = true;
+    for (int i = 0; i < 4; ++i) pose_ok = set_axis(engine, axis_handles[i], 14.5f) && pose_ok;
+    emit_correctness(engine, renderer, buffer, flush, "RESET_AFTER", pose_ok);
+    live2d_engine_reset_realtime(engine);
+    emit_correctness(engine, renderer, buffer, flush, "RELOAD_BEFORE", true);
+    bool reloaded = model_data && model_size &&
+                    live2d_engine_load(engine, model_data, model_size) == ESP_OK &&
+                    live2d_engine_enter_realtime(engine);
+    if (reloaded) live2d_engine_reset_realtime(engine);
+    emit_correctness(engine, renderer, buffer, flush, "RELOAD_STATIC", reloaded);
+    pose_ok = reloaded;
+    for (int i = 0; i < 4; ++i) pose_ok = set_axis(engine, axis_handles[i], 14.5f) && pose_ok;
+    emit_correctness(engine, renderer, buffer, flush, "RELOAD_POSE", pose_ok);
     }
     puts("L2D_DONE");
     fflush(stdout);
@@ -118,10 +179,10 @@ typedef struct {
     uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
     uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend, convert_us;
     uint32_t keypoint_us, visual_transform_us, stretch_us, vertex_transform_us, uv_update_us;
+    uint32_t trig_cache_hit, trig_cache_miss;
 } sample_t;
 static sample_t *ring;
 static uint32_t next_frame_id;
-static int active_backend;
 enum scenario_t { STATIC, ALL_14_5, ALL_29, EYE_L, EYE_R, NECK, FACE, MOUTH, MULTI, COUNT };
 static const char *const names[] = {"STATIC", "ALL_14_5", "ALL_29", "EYE_L_SWEEP",
     "EYE_R_SWEEP", "NECK_SWEEP", "FACE_SWEEP", "MOUTH_SWEEP", "MULTI_AXIS"};
@@ -179,6 +240,7 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
         out->vertex_transform_us = p.vertexTransformUs;
         out->uv_update_us = p.uvUpdateUs;
 #endif
+        live2d_engine_get_trig_cache(engine, &out->trig_cache_hit, &out->trig_cache_miss);
         out->bounds_us = renderer->last_bounds_us;
         out->clear_us = renderer->last_clear_us; out->raster_us = p.drawUs;
         out->convert_us = renderer->last_convert_us;
@@ -383,10 +445,10 @@ static void run_visual(live2d_engine_t *engine, live2d_renderer_t *renderer,
 
 void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
     sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
-    int64_t load_us, const char *model_sha256, size_t model_size) {
+    int64_t load_us, const char *model_sha256, const void *model_data, size_t model_size) {
 #if CONFIG_L2D_PROFILE_CORRECTNESS
     (void)load_us;
-    run_correctness(engine, renderer, buffer, flush, handles, model_sha256, model_size);
+    run_correctness(engine, renderer, buffer, flush, handles, model_sha256, model_data, model_size);
     return;
 #elif CONFIG_L2D_PROFILE_VISUAL
     run_visual(engine, renderer, buffer, flush, handles, load_us, model_sha256, model_size);
@@ -438,7 +500,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "ppa_fill_us,ppa_srm_us,ppa_total_us,clear_cache_sync_us,convert_cache_sync_us,"
           "flush_cache_sync_us,cache_sync_total_us,display_lock_wait_us,flush_total_us,frame_total_us,"
           "dirty_x,dirty_y,dirty_w,dirty_h,frame_drop,slot_miss,lock_skip,deadline_miss,backend,convert_us,"
-          "keypoint_us,visual_transform_us,stretch_us,vertex_transform_us,uv_update_us\n", csv);
+          "keypoint_us,visual_transform_us,stretch_us,vertex_transform_us,uv_update_us,"
+          "trig_cache_hit,trig_cache_miss\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
     fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld,0\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
@@ -480,6 +543,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 SUM(cache_sync_total_us); SUM(display_lock_wait_us); SUM(flush_total_us); SUM(frame_total_us);
                 SUM(keypoint_us); SUM(visual_transform_us); SUM(stretch_us);
                 SUM(vertex_transform_us); SUM(uv_update_us);
+                SUM(trig_cache_hit); SUM(trig_cache_miss);
                 SUM(slot_miss); SUM(lock_skip); SUM(deadline_miss);
                 fflush(summary);
                 ESP_LOGI(TAG, "done %s scale=%d round=%d", names[scene], scale, round);

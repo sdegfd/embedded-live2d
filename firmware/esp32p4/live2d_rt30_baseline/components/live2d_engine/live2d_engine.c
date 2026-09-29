@@ -458,6 +458,16 @@ void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
     if (engine && engine->loaded) *out_profile = engine->live.frameProfile;
 }
 
+void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
+                                  uint32_t *hit, uint32_t *miss)
+{
+    px_dword h = 0, m = 0;
+    (void)engine;
+    PX_LiveFrameworkGetTrigCacheFrame(&h, &m);
+    if (hit) *hit = (uint32_t)h;
+    if (miss) *miss = (uint32_t)m;
+}
+
 #if CONFIG_L2D_PROFILE_VISUAL
 void live2d_engine_visual_diag_copy(live2d_engine_t *engine, PX_LiveVisualDiagFrame *out)
 {

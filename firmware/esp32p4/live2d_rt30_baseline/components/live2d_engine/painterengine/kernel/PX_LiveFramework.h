@@ -133,6 +133,8 @@ struct _PX_LiveLayer
 	px_float rel_currentRotationAngle;    /**< 旋转插值当前角度 */
 	px_float rel_currentRotationSin;      /**< 当前旋转角度的正弦值（缓存） */
 	px_float rel_currentRotationCos;      /**< 当前旋转角度的余弦值（缓存） */
+	px_bool rel_rotationTrigValid;        /**< 旋转 sin/cos 是否对应当前角度 */
+	px_float rel_cachedRotationAngle;     /**< sin/cos 对应的旋转角，可与当前角不同 */
 	px_float rel_endRotationAngle;        /**< 旋转插值目标角度 */
 
 	/* ── 拉伸变换 ────────────────────────── */
@@ -151,6 +153,10 @@ struct _PX_LiveLayer
 	px_point rel_endLocalTranslation;        /**< 局部平移插值目标值 */
 	px_float rel_beginLocalRotationAngle;    /**< 局部旋转插值起始角度 */
 	px_float rel_currentLocalRotationAngle;  /**< 局部旋转插值当前角度 */
+	px_float rel_currentLocalRotationSin;    /**< 局部旋转正弦，仅在角度完全相等时复用 */
+	px_float rel_currentLocalRotationCos;    /**< 局部旋转余弦，仅在角度完全相等时复用 */
+	px_float rel_cachedLocalRotationAngle;   /**< 上述 sin/cos 对应的局部角度 */
+	px_bool rel_localRotationTrigValid;      /**< 局部旋转 sin/cos 是否有效 */
 	px_float rel_endLocalRotationAngle;      /**< 局部旋转插值目标角度 */
 	px_float rel_beginLocalScale;            /**< 局部缩放插值起始值 */
 	px_float rel_currentLocalScale;          /**< 局部缩放插值当前值 */
@@ -360,6 +366,7 @@ px_void PX_LiveFrameworkStop(PX_LiveFramework *plive);
 /** 按 animationMode 推进一帧状态：TIMELINE 走 VM，REALTIME30 走 RT30 求值，NEUTRAL 仅松弛。
  *  RenderCurrent 不推进状态；两者分离便于实时模式下参数与帧率解耦。 */
 px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed);
+px_void PX_LiveFrameworkGetTrigCacheFrame(px_dword *hit, px_dword *miss);
 /** 仅渲染当前姿态，不推进动画状态。保留 ESP 的 renderScale/快速采样/sin-cos 缓存路径。 */
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_int x,px_int y,PX_ALIGN refPoint);
 

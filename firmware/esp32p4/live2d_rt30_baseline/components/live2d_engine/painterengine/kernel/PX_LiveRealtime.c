@@ -1102,6 +1102,12 @@ px_void PX_LiveRealtimeResetAll(PX_LiveFramework *plive)
 #if CONFIG_L2D_PROFILE_VISUAL
 	PX_LiveFrameworkVisualDiagInvalidate();
 #endif
+	for (i=0;i<plive->layers.size;i++)
+	{
+		PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+		layer->rel_rotationTrigValid=PX_FALSE;
+		layer->rel_localRotationTrigValid=PX_FALSE;
+	}
 	for (i=0;i<plive->realtime.axisCount;i++)
 	{
 		PX_LiveRealtimeAxis *axis=&plive->realtime.axes[i];
