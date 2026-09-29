@@ -42,6 +42,8 @@ Git 当前的 `models/esp.live` 已固定为正式五轴文件。旧四轴 blob 
 
 ALL_14_5 与 ALL_29 包含 mouth。NECK_15 只写 neck。
 
+这一组 CRC 是软件光栅的对照基准，后续 SIMD、定点和其它 backend 都对着它。fast-nearest 内核拆到 `Live2D/src/raster/l2d_raster_nearest.c` 之后，Host 在 `-O2 -fno-strict-aliasing -ffp-contract=off` 下复测，上表不变。P4 的 459 行 RGB565 CRC 是这次拆分和浮点编译选项对齐之前的记录，不能用来判定当前固件。新的设备 CRC 要单独采集，并当作新基线。
+
 ## Host 内存
 
 同一轮测得：model pool 预留 2650168 字节、实际使用 837184 字节；每个 instance pool 实际使用 34416 字节。纹理像素、三角形索引、动画帧和 RT30 样本在实例间共享。P4 正确性测试的重载步骤会暂时对同一个 `/sdcard/esp.live` 再加载一次，以检查旧实例仍存在时的行为；它不是第二个正式模型。

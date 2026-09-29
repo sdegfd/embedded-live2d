@@ -1,15 +1,7 @@
 /**
- * @file live2d_engine.c
- * @brief Live2D PainterEngine封装层实现（待集成）
- *
- * ── 渲染管线位置 ──
- *   PainterEngine -> live2d_engine（动画/模型/着色器） -> live2d_renderer（格式转换） -> 显示缓冲区
- *
- * 本模块实现了基于PainterEngine的Live2D模型引擎封装。
- * 负责在PSRAM中分配内存池、导入Live2D模型、管理动画播放，
- * 并提供像素着色器优化和渲染接口。
- *
- * @note 待集成：此模块尚未与 Game UI 框架完全集成，当前为独立运行的 Live2D 演示模式。
+ * Internal playback engine behind the public l2d_* API.
+ * Allocation goes through l2d_allocator_t. The platform port chooses the heap.
+ * This file does not talk to PPA, a panel, or an RTOS.
  */
 
 #include "live2d_engine.h"

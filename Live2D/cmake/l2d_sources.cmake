@@ -6,6 +6,7 @@ set(L2D_RUNTIME_SOURCES
     src/memory/l2d_arena.c
     src/format/l2d_wire.c
     src/pipeline/l2d_roi.c
+    src/raster/l2d_raster_nearest.c
     src/internal/pe/core/PX_Typedef.c
     src/internal/pe/core/PX_Log.c
     src/internal/pe/core/PX_MemoryPool.c

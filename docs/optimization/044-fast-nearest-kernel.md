@@ -1,6 +1,6 @@
 # 044 Dedicated fast-nearest raster kernel
 
-Status: kept. Baseline is `de409f8` (word blend on the 256 KB L2, 128-byte line, 128-byte framebuffer alignment).
+Status: kept as the kernel step. The maintenance board numbers, after this kernel was moved to `Live2D/src/raster/l2d_raster_nearest.c` and the ESP component matched the host float flags, are in [045](045-runtime-closeout.md). The table below is the `763c358` capture. Baseline for that capture is `de409f8` (word blend on the 256 KB L2, 128-byte line, 128-byte framebuffer alignment).
 
 The fast-nearest scanline lived inside `PX_LiveFrameworkRenderCurrent`. That function is large enough that the edge slopes, intercepts, and affine UV state spill to a multi-kilobyte stack frame. Every scanline reloaded them and then marshalled the full generic span arguments, including vertex UVs, position, and normal that the fast path does not read. The P4 object for that call site is about a hundred loads and stores before the span prologue.
 

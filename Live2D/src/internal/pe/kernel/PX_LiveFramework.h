@@ -61,6 +61,14 @@ typedef struct
 	px_int index3; /**< 顶点 3 索引 */
 }PX_LiveTriangle;
 
+/** Screen-space vertex passed to the software raster. Not part of the public ABI. */
+typedef struct
+{
+	px_point position;
+	px_point normal;
+	px_float u,v;
+}PX_LiveRenderVertex;
+
 /* ── 纹理结构体 ────────────────────────────────── */
 
 /** Live2D 纹理：包含 PainterEngine 纹理对象及在模型中的偏移量 */

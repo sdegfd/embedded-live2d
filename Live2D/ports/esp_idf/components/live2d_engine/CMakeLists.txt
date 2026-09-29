@@ -37,8 +37,12 @@ l2d_cfg(L2D_CFG_PROFILE_DETAIL CONFIG_L2D_PROFILE_DETAIL)
 l2d_cfg(L2D_CFG_PROFILE_ROI_DIAG CONFIG_L2D_PROFILE_ROI_DIAG)
 l2d_cfg(L2D_CFG_SRM_ROI CONFIG_L2D_SRM_ROI)
 
+# Match the host runtime. Host pose CRCs are built with contraction off and
+# aliasing disabled; P4 and S3 must use the same rules.
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -O2
+    -fno-strict-aliasing
+    -ffp-contract=off
     -Wno-unused-function
     -Wno-maybe-uninitialized
     -Wno-error=array-parameter

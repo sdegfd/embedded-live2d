@@ -25,4 +25,12 @@
 #define L2D_CFG_SRM_ROI 0
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define L2D_NOINLINE __attribute__((noinline))
+#define L2D_ALWAYS_INLINE __attribute__((always_inline)) inline
+#else
+#define L2D_NOINLINE
+#define L2D_ALWAYS_INLINE inline
+#endif
+
 #endif

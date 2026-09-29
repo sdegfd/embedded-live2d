@@ -18,4 +18,6 @@ Timeline and RT30 are per-instance exclusive pose writers. `l2d_instance_play_an
 
 The P4 example uses the public model and instance API. Its render path clears the 320×320 ARGB buffer, evaluates one pose and rasterizes, converts only the geometry ROI through PPA SRM, then submits the full RGB565 panel buffer. Clear, raster and submit remain full-frame. PPA and cache policy are outside the shared runtime.
 
-The nearest renderer uses 16.16 UV stepping, integer alpha blend and per-instance trig cache. No per-pixel platform callback or C++ runtime is introduced into the core.
+The nearest renderer uses 16.16 UV stepping, integer alpha blend and per-instance trig cache. The fast-nearest kernel is `Live2D/src/raster/l2d_raster_nearest.c`. The generic span, including the HDR blend path, stays in the legacy framework file. Host and the ESP-IDF component both compile the runtime with `-O2 -fno-strict-aliasing -ffp-contract=off`. No per-pixel platform callback or C++ runtime is introduced into the core.
+
+Current posture, the board baseline and deferred work are in [status](status.md).

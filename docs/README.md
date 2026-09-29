@@ -3,12 +3,13 @@
 ## Current project
 
 - [Architecture and mode ownership](architecture/overview.md)
+- [Runtime status and maintenance baseline](architecture/status.md)
 - [Public API contracts](architecture/api-contracts.md)
 - [Model format and compatibility](formats/compatibility.md)
 - [Formal five-axis model identity](formats/model-baseline.md)
 - [Porting guide](porting/porting-guide.md)
-- [Benchmark workflow](benchmarks/README.md)
-- [Reorganization validation and P4 results](benchmarks/reorg-final.md)
+- [Benchmark workflow and current P4 baseline](benchmarks/README.md)
+- [Reorganization validation](benchmarks/reorg-final.md) (historical, `846b65e`)
 
 ## Development record
 

@@ -28,4 +28,4 @@ The test and benchmark refuse a model other than `models/esp.live`. The benchmar
 
 Use ESP-IDF v5.5.2. Build `examples/esp32p4/` or `examples/esp32s3/` with `idf.py build`. The P4 example expects the same model at `/sdcard/esp.live`; its capture tool checks the model identity before accepting results. S3 is a headless build example and has no claimed display performance.
 
-Read [the documentation index](docs/README.md) for the API, migration record and measured baselines. The retained PainterEngine sources have no project license declaration in this repository; resolve redistribution terms before a public release.
+Read [the documentation index](docs/README.md) for the API, porting notes and measured baselines. Current posture and the P4 maintenance numbers are in [runtime status](docs/architecture/status.md). The retained PainterEngine sources have no project license declaration in this repository; resolve redistribution terms before a public release.
