@@ -2,11 +2,13 @@
 
 #include "live2d_engine.h"
 #include "live2d_engine_internal.h"
+#include "l2d_allocator.h"
 #include "l2d_pe_port.h"
 
 #include <string.h>
 
 struct l2d_model {
+    l2d_allocator_t allocator;
     live2d_engine_t *engine;
 };
 
@@ -34,10 +36,20 @@ static void l2d_copy_share_view(l2d_share_view_t *out, const live2d_engine_share
     out->pool_used = src->pool_used;
 }
 
-l2d_status_t l2d_model_load_memory(const void *bytes, size_t size, l2d_model_t **out)
+static void l2d_fill_used_bound(l2d_bytes_bound_t *bound, size_t used, size_t reserved)
+{
+    memset(bound, 0, sizeof(*bound));
+    bound->minimum = used;
+    bound->recommended = used;
+    bound->upper_bound = reserved > used ? reserved : used;
+}
+
+l2d_status_t l2d_model_load_memory(const l2d_model_config_t *config, const void *bytes, size_t size,
+                                   l2d_model_t **out)
 {
     l2d_model_t *model;
     l2d_status_t status;
+    const l2d_allocator_t *given = config ? config->allocator : NULL;
     if (!out) {
         return L2D_ERR_INVALID_ARG;
     }
@@ -45,20 +57,22 @@ l2d_status_t l2d_model_load_memory(const void *bytes, size_t size, l2d_model_t *
     if (!bytes || size == 0) {
         return L2D_ERR_INVALID_ARG;
     }
-    model = (l2d_model_t *)l2d_port_alloc(sizeof(void *), sizeof(*model));
+    model = (l2d_model_t *)l2d_heap_alloc(given, L2D_MEM_MODEL, sizeof(void *), sizeof(*model));
     if (!model) {
         return L2D_ERR_NO_MEM;
     }
     memset(model, 0, sizeof(*model));
-    status = live2d_engine_create(L2D_MODEL_POOL_BYTES, &model->engine);
+    l2d_allocator_resolve(given, &model->allocator);
+    status = live2d_engine_create(&model->allocator, L2D_MEM_MODEL, L2D_MODEL_POOL_BYTES,
+                                  &model->engine);
     if (status != L2D_OK) {
-        l2d_port_free(model);
+        l2d_heap_free(&model->allocator, L2D_MEM_MODEL, model);
         return status;
     }
     status = live2d_engine_load(model->engine, bytes, size);
     if (status != L2D_OK) {
         live2d_engine_destroy(model->engine);
-        l2d_port_free(model);
+        l2d_heap_free(&model->allocator, L2D_MEM_MODEL, model);
         return status;
     }
     *out = model;
@@ -67,11 +81,36 @@ l2d_status_t l2d_model_load_memory(const void *bytes, size_t size, l2d_model_t *
 
 void l2d_model_destroy(l2d_model_t *model)
 {
+    l2d_allocator_t allocator;
     if (!model) {
         return;
     }
+    allocator = model->allocator;
     live2d_engine_destroy(model->engine);
-    l2d_port_free(model);
+    l2d_heap_free(&allocator, L2D_MEM_MODEL, model);
+}
+
+void l2d_model_memory_requirements(const l2d_model_t *model, l2d_memory_requirements_t *out)
+{
+    live2d_engine_info_t info;
+    size_t used = 0;
+    size_t reserve = 0;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!model || !model->engine) {
+        return;
+    }
+    live2d_engine_get_info(model->engine, &info);
+    if (info.pool_size >= info.pool_free) {
+        used = info.pool_size - info.pool_free;
+    }
+    reserve = live2d_engine_mutable_reserve(model->engine);
+    l2d_fill_used_bound(&out->persistent_immutable, used, info.pool_size);
+    out->per_instance_mutable.minimum = 0;
+    out->per_instance_mutable.recommended = reserve;
+    out->per_instance_mutable.upper_bound = reserve;
 }
 
 void l2d_model_info(const l2d_model_t *model, l2d_model_info_t *out)
@@ -162,10 +201,13 @@ static int l2d_surface_tight_bgra(const l2d_surface_t *surface)
     return surface->buffer_size_bytes >= need;
 }
 
-l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out)
+l2d_status_t l2d_instance_create(l2d_model_t *model, const l2d_instance_config_t *config,
+                                 l2d_instance_t **out)
 {
     l2d_instance_t *instance;
     l2d_status_t status;
+    const l2d_allocator_t *given = (config && config->allocator) ? config->allocator : NULL;
+    const l2d_allocator_t *allocator;
     if (!out) {
         return L2D_ERR_INVALID_ARG;
     }
@@ -173,14 +215,16 @@ l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out)
     if (!model) {
         return L2D_ERR_INVALID_ARG;
     }
-    instance = (l2d_instance_t *)l2d_port_alloc(sizeof(void *), sizeof(*instance));
+    allocator = given ? given : &model->allocator;
+    instance = (l2d_instance_t *)l2d_heap_alloc(allocator, L2D_MEM_INSTANCE, sizeof(void *),
+                                                sizeof(*instance));
     if (!instance) {
         return L2D_ERR_NO_MEM;
     }
     memset(instance, 0, sizeof(*instance));
-    status = live2d_engine_clone_shared(model->engine, &instance->engine);
+    status = live2d_engine_clone_shared(model->engine, allocator, &instance->engine);
     if (status != L2D_OK) {
-        l2d_port_free(instance);
+        l2d_heap_free(allocator, L2D_MEM_INSTANCE, instance);
         return status;
     }
     instance->model = model;
@@ -190,11 +234,31 @@ l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out)
 
 void l2d_instance_destroy(l2d_instance_t *instance)
 {
+    l2d_allocator_t allocator;
     if (!instance) {
         return;
     }
+    allocator = *live2d_engine_allocator(instance->engine);
     live2d_engine_destroy(instance->engine);
-    l2d_port_free(instance);
+    l2d_heap_free(&allocator, L2D_MEM_INSTANCE, instance);
+}
+
+void l2d_instance_memory_requirements(const l2d_instance_t *instance, l2d_memory_requirements_t *out)
+{
+    live2d_engine_info_t info;
+    size_t used = 0;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!instance || !instance->engine) {
+        return;
+    }
+    live2d_engine_get_info(instance->engine, &info);
+    if (info.pool_size >= info.pool_free) {
+        used = info.pool_size - info.pool_free;
+    }
+    l2d_fill_used_bound(&out->per_instance_mutable, used, info.pool_size);
 }
 
 bool l2d_instance_is_loaded(const l2d_instance_t *instance)

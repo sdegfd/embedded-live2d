@@ -6,6 +6,7 @@
 #define LIVE2D_ENGINE_H
 
 #include "l2d/l2d_types.h"
+#include "l2d/l2d_memory.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -68,7 +69,8 @@ typedef struct {
  * The instance object itself is zeroed. Returns L2D_ERR_NO_MEM on failure
  * and does not leak a partial object.
  */
-l2d_status_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine);
+l2d_status_t live2d_engine_create(const l2d_allocator_t *allocator, l2d_memory_class_t cls,
+                                 size_t pool_size, live2d_engine_t **out_engine);
 void live2d_engine_destroy(live2d_engine_t *engine);
 
 /**
@@ -77,7 +79,10 @@ void live2d_engine_destroy(live2d_engine_t *engine);
  * state are copied. The source must outlive the clone.
  */
 l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source,
+                                        const l2d_allocator_t *allocator,
                                         live2d_engine_t **out_engine);
+size_t live2d_engine_mutable_reserve(const live2d_engine_t *engine);
+const l2d_allocator_t *live2d_engine_allocator(const live2d_engine_t *engine);
 
 typedef struct {
     const void *texture_pixels;

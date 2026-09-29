@@ -15,6 +15,7 @@ idf_component_register(
         "${L2D_ROOT}/include"
     PRIV_INCLUDE_DIRS
         "${L2D_ROOT}/src/engine"
+        "${L2D_ROOT}/src/memory"
         "${L2D_ROOT}/src/internal"
         "${L2D_ROOT}/src/internal/pe/core"
         "${L2D_ROOT}/src/internal/pe/kernel"

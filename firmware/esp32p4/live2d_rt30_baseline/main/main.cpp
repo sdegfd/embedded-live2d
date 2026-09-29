@@ -2,8 +2,8 @@
  * @file main.cpp
  * @brief Live2D RT30 实时多轴基线验证入口
  *
- * 加载设备 SD 上的 esp.live，进入 REALTIME30 模式，按实际轴数测试。
- * 基础模型有 left_eye/right_eye/neck/face；mouth 若存在则额外测试。
+ * 加载设备 SD 上的 esp.live。正式测试只接受与工作区 project/esp.live 相同的五轴文件。
+ * 轴为 left_eye、right_eye、neck、face、mouth。SHA256 或轴数不符时停止，不换模型。
  *   - RT30 尾部被正确解析并记录真实轴 ID
  *   - 实时多轴 Q15 融合产生可见姿态变化
  *   - 模式仲裁/局部变换/ESP 渲染优化路径不崩溃
@@ -41,6 +41,8 @@
 static const char *TAG = "l2d_baseline";
 
 #define MODEL_PATH        "/sdcard/esp.live"
+#define L2D_BASELINE_SHA256 "1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100"
+#define L2D_BASELINE_SIZE   800796u
 #define TASK_STACK        (32 * 1024)
 #define TASK_PRIORITY     6
 #define TASK_CORE         0
@@ -50,7 +52,7 @@ static const char *TAG = "l2d_baseline";
 #define STATS_US          1000000
 #define WEIGHT_FULL_Q15   32767u
 
-/* 五轴 ID（与当前 /sdcard/release.live RT30 尾部一致） */
+/* 五轴 ID，对应 SD 与工作区里的 esp.live。 */
 static const char *AXIS_LEFT_EYE  = "left_eye";
 static const char *AXIS_RIGHT_EYE = "right_eye";
 static const char *AXIS_NECK      = "neck";
@@ -249,7 +251,7 @@ static void render_task(void *arg)
     l2d_model_t *model = NULL;
     l2d_instance_t *instance = NULL;
     int64_t load_begin = esp_timer_get_time();
-    l2d_status_t st = l2d_model_load_memory(model_data, model_size, &model);
+    l2d_status_t st = l2d_model_load_memory(NULL, model_data, model_size, &model);
     int64_t load_end = esp_timer_get_time();
 #if !CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
@@ -261,7 +263,7 @@ static void render_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    st = l2d_instance_create(model, &instance);
+    st = l2d_instance_create(model, NULL, &instance);
     if (st != L2D_OK) {
         ESP_LOGE(TAG, "instance create failed: status=%d", (int)st);
         l2d_model_destroy(model);
@@ -303,14 +305,17 @@ static void render_task(void *arg)
     int h_mouth = l2d_instance_find_axis(instance, AXIS_MOUTH);
     ESP_LOGI(TAG, "axis handles: left_eye=%d right_eye=%d neck=%d face=%d mouth=%d",
              h_eye_l, h_eye_r, h_neck, h_face, h_mouth);
-    if (h_eye_l < 0 || h_eye_r < 0 || h_neck < 0 || h_face < 0) {
+    if (strcmp(model_sha_hex, L2D_BASELINE_SHA256) != 0 || model_size != L2D_BASELINE_SIZE ||
+        axis_count != 5 || h_eye_l < 0 || h_eye_r < 0 || h_neck < 0 || h_face < 0 || h_mouth < 0) {
         ESP_LOGE(TAG,
-                 "RT30 test requires left_eye/right_eye/neck/face");
+                 "STOP formal test: %s size=%u sha=%s axes=%d mouth=%d. Expected five-axis esp.live "
+                 "sha=%s size=%u. Not switching models.",
+                 MODEL_PATH, (unsigned)model_size, model_sha_hex, axis_count, h_mouth,
+                 L2D_BASELINE_SHA256, (unsigned)L2D_BASELINE_SIZE);
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "benchmark axes=%d, mouth=%s", axis_count,
-             h_mouth >= 0 ? "present" : "absent (mouth sweep skipped)");
+    ESP_LOGI(TAG, "benchmark model_path=%s axis_count=%d", MODEL_PATH, axis_count);
 
     int render_w = 0, render_h = 0;
     choose_render_size(&info, &render_w, &render_h);

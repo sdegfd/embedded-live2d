@@ -1,8 +1,8 @@
 # Host headless runtime
 
-The host test is the headless playback entry. It uses the four-axis model
-stored in git blob `4174304b8374697b7dd8cfab034d5398f5243306` and does not
-open `project/esp.live`.
+The host test is the headless playback entry. It opens the worktree file
+`project/esp.live` and accepts only the five-axis baseline recorded in
+`docs/refactor/MODEL_BASELINE.md`.
 
 ```bash
 cmake -S . -B build/host

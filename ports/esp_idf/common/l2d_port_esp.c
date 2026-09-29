@@ -8,42 +8,50 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-static uint32_t g_alloc_calls;
-static int g_alloc_trap;
-
-void *l2d_port_alloc(size_t alignment, size_t size)
+static uint32_t l2d_port_caps(l2d_memory_class_t cls)
 {
     uint32_t caps = MALLOC_CAP_8BIT;
-    g_alloc_calls++;
-    if (g_alloc_trap || size == 0) {
+#if CONFIG_SPIRAM
+    /* FAST is the only class that prefers internal RAM. Model, instance,
+     * large, scratch, and framebuffer stay on external RAM so this change
+     * does not move hot playback state. */
+    if (cls == L2D_MEM_FAST) {
+        return caps | MALLOC_CAP_INTERNAL;
+    }
+    (void)cls;
+    return caps | MALLOC_CAP_SPIRAM;
+#else
+    (void)cls;
+    return caps;
+#endif
+}
+
+void *l2d_port_alloc(void *user, l2d_memory_class_t cls, size_t alignment, size_t size)
+{
+    void *ptr;
+    (void)user;
+    if (size == 0) {
         return NULL;
     }
     if (alignment < sizeof(void *)) {
         alignment = sizeof(void *);
     }
+    ptr = heap_caps_aligned_alloc(alignment, size, l2d_port_caps(cls));
 #if CONFIG_SPIRAM
-    /* P4 production pools are larger than internal RAM. S3 builds without
-     * SPIRAM stay on internal RAM and must not invent an external size. */
-    caps |= MALLOC_CAP_SPIRAM;
+    if (!ptr && cls == L2D_MEM_FAST) {
+        ptr = heap_caps_aligned_alloc(alignment, size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    }
 #endif
-    return heap_caps_aligned_alloc(alignment, size, caps);
+    return ptr;
 }
 
-void l2d_port_free(void *ptr)
+void l2d_port_free(void *user, l2d_memory_class_t cls, void *ptr)
 {
+    (void)user;
+    (void)cls;
     if (ptr) {
         heap_caps_free(ptr);
     }
-}
-
-void l2d_port_alloc_trap(int enable)
-{
-    g_alloc_trap = enable ? 1 : 0;
-}
-
-uint32_t l2d_port_alloc_calls(void)
-{
-    return g_alloc_calls;
 }
 
 void l2d_port_log(int level, const char *tag, const char *fmt, ...)

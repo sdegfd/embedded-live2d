@@ -7,9 +7,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-static uint32_t g_alloc_calls;
-static int g_alloc_trap;
-
 static size_t l2d_port_align(size_t alignment)
 {
     size_t a = alignment < sizeof(void *) ? sizeof(void *) : alignment;
@@ -23,11 +20,12 @@ static size_t l2d_port_align(size_t alignment)
     return p;
 }
 
-void *l2d_port_alloc(size_t alignment, size_t size)
+void *l2d_port_alloc(void *user, l2d_memory_class_t cls, size_t alignment, size_t size)
 {
     void *ptr = NULL;
-    g_alloc_calls++;
-    if (g_alloc_trap || size == 0) {
+    (void)user;
+    (void)cls;
+    if (size == 0) {
         return NULL;
     }
     if (posix_memalign(&ptr, l2d_port_align(alignment), size) != 0) {
@@ -36,19 +34,11 @@ void *l2d_port_alloc(size_t alignment, size_t size)
     return ptr;
 }
 
-void l2d_port_free(void *ptr)
+void l2d_port_free(void *user, l2d_memory_class_t cls, void *ptr)
 {
+    (void)user;
+    (void)cls;
     free(ptr);
-}
-
-void l2d_port_alloc_trap(int enable)
-{
-    g_alloc_trap = enable ? 1 : 0;
-}
-
-uint32_t l2d_port_alloc_calls(void)
-{
-    return g_alloc_calls;
 }
 
 void l2d_port_log(int level, const char *tag, const char *fmt, ...)

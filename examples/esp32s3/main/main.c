@@ -11,7 +11,7 @@ void app_main(void)
 {
     l2d_model_t *model = NULL;
     l2d_instance_t *instance = NULL;
-    l2d_status_t status = l2d_model_load_memory(NULL, 0, &model);
+    l2d_status_t status = l2d_model_load_memory(NULL, NULL, 0, &model);
     uint32_t red = 0xFFFF0000u;
     uint8_t src[4];
     uint8_t dst[2];
@@ -20,7 +20,7 @@ void app_main(void)
         l2d_model_destroy(model);
         return;
     }
-    status = l2d_instance_create(NULL, &instance);
+    status = l2d_instance_create(NULL, NULL, &instance);
     if (status == L2D_OK || instance != NULL) {
         printf("L2D_S3_SMOKE_FAIL null instance was accepted\n");
         l2d_instance_destroy(instance);

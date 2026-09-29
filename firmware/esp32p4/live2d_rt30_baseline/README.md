@@ -17,7 +17,7 @@ CPU 占用由 FreeRTOS 每核 Idle 任务的运行时间增量计算，约每秒
 独立基线工程，用于在 ESP32-P4 上验证 PainterEngine 的 **RT30 实时多轴**动画能力（离散 30 样本 + Q15 多轴融合 + 局部变换 + 模式仲裁），验证通过后再把合并后的内核移植回成熟工程 `../live2d_demo`。
 
 依据：`/home/ubuntu/projects/project/PainterEngine_esp模型替换与框架更新计划.md`（阶段 B/C/D/E）。
-模型运行时路径固定为 `/sdcard/esp.live`。基础测试要求 `left_eye`/`right_eye`/`neck`/`face` 四轴；若有 `mouth`，额外运行嘴轴场景。
+模型运行时路径固定为 `/sdcard/esp.live`。正式测试只使用工作区 `project/esp.live` 这一份五轴模型（`left_eye`/`right_eye`/`neck`/`face`/`mouth`）。开测前核对两边 SHA256；不一致就停止，不改用其他 `.live`。规则见 `docs/refactor/MODEL_BASELINE.md`。
 
 ## 目录结构
 

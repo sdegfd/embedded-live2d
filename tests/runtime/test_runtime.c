@@ -1,6 +1,6 @@
 #include "l2d/l2d.h"
-#include "l2d_pe_port.h"
 #include "live2d_engine_internal.h"
+#include "l2d_test_allocator.h"
 
 #include <openssl/sha.h>
 #include <stdio.h>
@@ -8,8 +8,11 @@
 #include <string.h>
 #include <zlib.h>
 
-#define FOUR_AXIS_SHA "786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b"
-#define FOUR_AXIS_SIZE 798660u
+/* Formal baseline: worktree project/esp.live, same file as /sdcard/esp.live. */
+#define L2D_BASELINE_SHA "1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100"
+#define L2D_BASELINE_SIZE 800796u
+#define L2D_FORBIDDEN_4AXIS_SHA "786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b"
+#define L2D_FORBIDDEN_RELEASE_SHA "5cfd67979fb365cc9edbca7b955aac391ebb39bca062fa855e4209faa02498b1"
 #define POOL_BYTES (16u * 1024u * 1024u)
 
 static int g_fails;
@@ -104,6 +107,29 @@ static uint32_t render_pose(l2d_instance_t *instance, void *pixels, int w, int h
     return crc;
 }
 
+static void test_arena(void)
+{
+    l2d_test_allocator_t heap;
+    l2d_arena_t *arena = NULL;
+    uint32_t calls;
+    void *first;
+    void *second;
+    l2d_test_allocator_init(&heap);
+    expect_true(l2d_arena_create(&heap.allocator, L2D_MEM_SCRATCH, 256, &arena) == L2D_OK, "arena");
+    expect_true(heap.alloc_calls == 2, "arena reserves once");
+    first = l2d_arena_alloc(arena, 16, 32);
+    second = l2d_arena_alloc(arena, 8, 24);
+    expect_true(first && second && first != second, "arena bump");
+    calls = heap.alloc_calls;
+    expect_true(l2d_arena_alloc(arena, 4, 16) != NULL, "arena still inside");
+    expect_true(heap.alloc_calls == calls, "bump does not allocate");
+    expect_true(l2d_arena_alloc(arena, 8, 1024) == NULL, "arena full");
+    l2d_arena_reset(arena);
+    expect_true(l2d_arena_used(arena) == 0, "arena reset");
+    l2d_arena_destroy(arena);
+    expect_true(heap.free_calls == 2, "arena freed");
+}
+
 static void test_pixels(void)
 {
     uint32_t red = 0xFFFF0000u;
@@ -188,6 +214,10 @@ static void test_model(const char *path)
     void *model = NULL;
     size_t size = 0;
     char hex[65];
+    l2d_test_allocator_t heap;
+    l2d_model_config_t model_cfg;
+    l2d_instance_config_t instance_cfg;
+    l2d_memory_requirements_t requirements;
     l2d_model_t *model_obj = NULL;
     l2d_model_t *bad_model = NULL;
     l2d_instance_t *a = NULL;
@@ -203,6 +233,7 @@ static void test_model(const char *path)
     int w, h, i;
     uint32_t hit = 0, miss = 0, hit_b = 0, miss_b = 0;
     uint32_t crc_static, crc_145, crc_29, crc_neck, crc_again;
+    uint32_t hit_145 = 0, miss_145 = 0;
     uint32_t calls;
     l2d_surface_t bad;
     unsigned char truncated[64];
@@ -211,29 +242,57 @@ static void test_model(const char *path)
         return;
     }
     sha256_hex(model, size, hex);
-    expect_true(size == FOUR_AXIS_SIZE, "4-axis size");
-    expect_true(strcmp(hex, FOUR_AXIS_SHA) == 0, "4-axis sha256");
-    printf("MODEL sha=%s size=%zu\n", hex, size);
+    printf("MODEL_BASELINE path=project/esp.live device_path=/sdcard/esp.live sha256=%s size=%zu\n",
+           hex, size);
+    if (strcmp(hex, L2D_FORBIDDEN_4AXIS_SHA) == 0 || strcmp(hex, L2D_FORBIDDEN_RELEASE_SHA) == 0) {
+        fprintf(stderr,
+                "STOP formal test: %s is not the five-axis esp.live baseline. Not switching models.\n",
+                hex);
+        g_fails++;
+        free(model);
+        return;
+    }
+    expect_true(size == L2D_BASELINE_SIZE && strcmp(hex, L2D_BASELINE_SHA) == 0,
+                "five-axis esp.live sha256");
+    if (size != L2D_BASELINE_SIZE || strcmp(hex, L2D_BASELINE_SHA) != 0) {
+        fprintf(stderr, "STOP formal test: project/esp.live sha/size does not match the baseline. "
+                        "Not switching models.\n");
+        free(model);
+        return;
+    }
 
+    l2d_test_allocator_init(&heap);
+    model_cfg.allocator = &heap.allocator;
+    instance_cfg.allocator = &heap.allocator;
     memcpy(truncated, model, sizeof(truncated));
-    expect_true(l2d_model_load_memory(truncated, sizeof(truncated), &model_obj) != L2D_OK,
+    expect_true(l2d_model_load_memory(&model_cfg, truncated, sizeof(truncated), &model_obj) != L2D_OK,
                 "truncated");
     expect_true(model_obj == NULL, "truncated not loaded");
-    expect_true(l2d_model_load_memory(model, size, &model_obj) == L2D_OK, "load model");
-    expect_true(l2d_instance_create(model_obj, &a) == L2D_OK, "create a");
+    expect_true(l2d_model_load_memory(&model_cfg, model, size, &model_obj) == L2D_OK, "load model");
+    expect_true(l2d_instance_create(model_obj, &instance_cfg, &a) == L2D_OK, "create a");
     expect_true(l2d_instance_enter_rt30(a), "enter a");
     l2d_instance_info(a, &info);
     printf("INFO %dx%d layers=%d textures=%d anim=%d axes=%d\n", info.width, info.height,
            info.layer_count, info.texture_count, info.animation_count, info.axis_count);
     expect_true(info.width == 320 && info.height == 320, "canvas");
-    expect_true(info.layer_count == 11 && info.axis_count == 4, "4-axis topology");
+    expect_true(info.layer_count == 11 && info.texture_count == 12 && info.axis_count == 5,
+                "five-axis topology");
     w = info.width;
     h = info.height;
     for (i = 0; i < 5; ++i) {
         handles[i] = l2d_instance_find_axis(a, ids[i]);
     }
-    expect_true(handles[0] == 0 && handles[1] == 1 && handles[2] == 2 && handles[3] == 3, "handles");
-    expect_true(handles[4] < 0, "mouth absent");
+    expect_true(handles[0] >= 0 && handles[1] >= 0 && handles[2] >= 0 && handles[3] >= 0 &&
+                    handles[4] >= 0,
+                "five axis ids");
+    {
+        l2d_mesh_counts_t geo;
+        l2d_instance_mesh_counts(a, &geo);
+        printf("MODEL_BASELINE axis_count=%d layer_count=%d vertex_count=%u triangle_count=%u "
+               "texture_count=%d\n",
+               info.axis_count, info.layer_count, geo.vertices, geo.triangles, info.texture_count);
+        expect_true(geo.vertices == 227 && geo.triangles == 257, "mesh counts");
+    }
 
     pixels = calloc((size_t)w * (size_t)h, 4u);
     expect_true(pixels != NULL, "pixels");
@@ -250,13 +309,13 @@ static void test_model(const char *path)
 
     l2d_instance_reset_rt30(a);
     set_all(a, handles, 5, 14.5f);
-    crc_145 = render_pose(a, pixels, w, h, "ALL_14_5", &hit, &miss);
-    expect_true(crc_145 == 0xd522cbf1u && hit == 29 && miss == 22, "ALL_14_5");
+    crc_145 = render_pose(a, pixels, w, h, "ALL_14_5", &hit_145, &miss_145);
+    expect_true(crc_145 == 0x540d2664u && hit_145 == 29 && miss_145 == 22, "ALL_14_5");
 
     l2d_instance_reset_rt30(a);
     set_all(a, handles, 5, 29.f);
     crc_29 = render_pose(a, pixels, w, h, "ALL_29", &hit, &miss);
-    expect_true(crc_29 == 0x1033faa1u && hit == 29 && miss == 22, "ALL_29");
+    expect_true(crc_29 == 0x7a64b4adu && hit == 29 && miss == 22, "ALL_29");
 
     l2d_instance_reset_rt30(a);
     l2d_instance_set_axis_position(a, handles[2], 15.f, 32767);
@@ -283,7 +342,7 @@ static void test_model(const char *path)
     memset(pixels, 0, bad.buffer_size_bytes);
     expect_true(l2d_pipeline_frame(a, &bad, 0, 0, 33) == L2D_OK, "nonsquare");
 
-    calls = l2d_port_alloc_calls();
+    calls = heap.alloc_calls;
     {
         l2d_surface_t surface = tight_surface(pixels, w, h);
         int frame;
@@ -291,9 +350,9 @@ static void test_model(const char *path)
             expect_true(l2d_pipeline_frame(a, &surface, 0, 0, 33) == L2D_OK, "steady frame");
         }
     }
-    expect_true(l2d_port_alloc_calls() == calls, "steady state zero alloc");
+    expect_true(heap.alloc_calls == calls, "steady state zero alloc");
 
-    expect_true(l2d_instance_create(model_obj, &b) == L2D_OK, "create b");
+    expect_true(l2d_instance_create(model_obj, &instance_cfg, &b) == L2D_OK, "create b");
     expect_true(l2d_instance_enter_rt30(b), "enter b");
     l2d_model_share_view(model_obj, &model_share);
     l2d_instance_share_view(a, &share_a);
@@ -321,9 +380,17 @@ static void test_model(const char *path)
                 "private vertices");
     expect_true(share_a.pool_used * 2u < model_share.pool_used, "instance a is not a model copy");
     expect_true(share_b.pool_used * 2u < model_share.pool_used, "instance b is not a model copy");
+    l2d_model_memory_requirements(model_obj, &requirements);
+    expect_true(requirements.persistent_immutable.minimum == model_share.pool_used, "model minimum");
+    expect_true(requirements.persistent_immutable.upper_bound >= requirements.persistent_immutable.minimum,
+                "model upper");
+    expect_true(requirements.per_instance_mutable.upper_bound >= share_a.pool_used, "instance reserve");
+    l2d_instance_memory_requirements(a, &requirements);
+    expect_true(requirements.per_instance_mutable.minimum == share_a.pool_used, "instance used");
+    expect_true(requirements.renderer_scratch.minimum == 0, "no renderer scratch");
     l2d_instance_reset_rt30(b);
     crc_b_before = render_pose(b, pixels, w, h, "B_STATIC", &hit_b, &miss_b);
-    expect_true(crc_b_before == 0x6793bec7u, "b static");
+    expect_true(crc_b_before == crc_static, "b static");
     l2d_instance_reset_rt30(a);
     set_all(a, handles, 5, 14.5f);
     crc_again = render_pose(a, pixels, w, h, "A_AGAIN", &hit, &miss);
@@ -337,12 +404,12 @@ static void test_model(const char *path)
     {
         uint32_t hit_a = 0, miss_a = 0;
         l2d_instance_trig_cache(a, &hit_a, &miss_a);
-        expect_true(hit_a == 29 && miss_a == 22, "b did not wipe a");
+        expect_true(hit_a == hit_145 && miss_a == miss_145, "b did not wipe a");
     }
     crc_again = render_pose(a, pixels, w, h, "A_AFTER_B", &hit, &miss);
     expect_true(crc_again == crc_145, "a pose survived b");
 
-    expect_true(l2d_model_load_memory(truncated, sizeof(truncated), &bad_model) != L2D_OK,
+    expect_true(l2d_model_load_memory(&model_cfg, truncated, sizeof(truncated), &bad_model) != L2D_OK,
                 "reload bad");
     expect_true(bad_model == NULL, "failed load creates nothing");
     expect_true(l2d_instance_is_loaded(a) && l2d_instance_is_loaded(b), "live model remains");
@@ -350,16 +417,16 @@ static void test_model(const char *path)
     crc_again = render_pose(b, pixels, w, h, "B_AFTER_BAD_LOAD", &hit_b, &miss_b);
     expect_true(crc_again == crc_b_before, "failed load keeps b");
 
-    l2d_port_alloc_trap(1);
+    heap.trap = 1;
     {
         l2d_model_t *c = NULL;
         l2d_instance_t *d = NULL;
-        expect_true(l2d_model_load_memory(model, size, &c) == L2D_ERR_NO_MEM, "alloc trap");
+        expect_true(l2d_model_load_memory(&model_cfg, model, size, &c) == L2D_ERR_NO_MEM, "alloc trap");
         expect_true(c == NULL, "trap creates nothing");
-        expect_true(l2d_instance_create(model_obj, &d) == L2D_ERR_NO_MEM, "instance trap");
+        expect_true(l2d_instance_create(model_obj, &instance_cfg, &d) == L2D_ERR_NO_MEM, "instance trap");
         expect_true(d == NULL, "trap instance is null");
     }
-    l2d_port_alloc_trap(0);
+    heap.trap = 0;
 
     l2d_instance_destroy(a);
     l2d_instance_destroy(b);
@@ -368,59 +435,13 @@ static void test_model(const char *path)
     free(model);
 }
 
-static void test_release_live(const char *path)
-{
-    void *bytes = NULL;
-    size_t size = 0;
-    char hex[65];
-    l2d_model_t *model = NULL;
-    l2d_instance_t *a = NULL;
-    l2d_instance_t *b = NULL;
-    l2d_model_info_t info;
-    l2d_share_view_t model_share;
-    l2d_share_view_t share_a;
-    l2d_share_view_t share_b;
-    if (!path || read_file(path, &bytes, &size) != 0) {
-        fprintf(stderr, "FAIL release.live missing\n");
-        g_fails++;
-        return;
-    }
-    sha256_hex(bytes, size, hex);
-    expect_true(size == 3747332u, "release size");
-    expect_true(strcmp(hex, "5cfd67979fb365cc9edbca7b955aac391ebb39bca062fa855e4209faa02498b1") == 0,
-                "release sha");
-    expect_true(l2d_model_load_memory(bytes, size, &model) == L2D_OK, "release load");
-    l2d_model_info(model, &info);
-    printf("RELEASE layers=%d textures=%d anim=%d axes=%d\n", info.layer_count, info.texture_count,
-           info.animation_count, info.axis_count);
-    expect_true(info.layer_count == 34 && info.texture_count == 54 && info.animation_count == 32 &&
-                    info.axis_count == 0,
-                "release topology");
-    expect_true(l2d_instance_create(model, &a) == L2D_OK, "release instance a");
-    expect_true(l2d_instance_create(model, &b) == L2D_OK, "release instance b");
-    expect_true(l2d_instance_enter_rt30(a) && l2d_instance_enter_rt30(b), "release enter");
-    l2d_model_share_view(model, &model_share);
-    l2d_instance_share_view(a, &share_a);
-    l2d_instance_share_view(b, &share_b);
-    printf("RELEASE_MEM model_bytes=%zu instance_a_bytes=%zu instance_b_bytes=%zu\n",
-           model_share.pool_used, share_a.pool_used, share_b.pool_used);
-    expect_true(model_share.texture_pixels && model_share.texture_pixels == share_a.texture_pixels &&
-                    share_a.texture_pixels == share_b.texture_pixels,
-                "release shared texture");
-    expect_true(share_a.pool_used * 2u < model_share.pool_used, "release instance is smaller");
-    l2d_instance_destroy(a);
-    l2d_instance_destroy(b);
-    l2d_model_destroy(model);
-    free(bytes);
-}
-
 int main(void)
 {
-    const char *path = L2D_FIXTURE_4AXIS;
+    const char *path = L2D_MODEL_ESP_LIVE;
     test_pixels();
+    test_arena();
     test_roi();
     test_model(path);
-    test_release_live(L2D_RELEASE_LIVE);
     if (g_fails) {
         fprintf(stderr, "%d failure(s)\n", g_fails);
         return 1;

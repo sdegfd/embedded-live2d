@@ -2,15 +2,16 @@
  * Platform services used by the shared PainterEngine-derived runtime.
  * This header is internal. It does not include ESP-IDF, FreeRTOS, or LVGL.
  *
- * l2d_port_alloc is the only system allocator the runtime may call.
- * The Live2D memory pool then serves update/render. Steady-state frames
- * must not call l2d_port_alloc again.
+ * l2d_port_alloc is the default system allocator. Callers may pass their own
+ * l2d_allocator_t instead. Steady-state update/render must not allocate.
  *
  * Time is optional and is not an animation clock. Passing elapsed time
  * remains the caller's job. l2d_pe_time_us is only for diagnostics.
  */
 #ifndef L2D_PE_PORT_H
 #define L2D_PE_PORT_H
+
+#include "l2d/l2d_memory.h"
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -20,12 +21,8 @@
 extern "C" {
 #endif
 
-void *l2d_port_alloc(size_t alignment, size_t size);
-void l2d_port_free(void *ptr);
-
-/** When enabled, further alloc calls fail and still increment the counter. */
-void l2d_port_alloc_trap(int enable);
-uint32_t l2d_port_alloc_calls(void);
+void *l2d_port_alloc(void *user, l2d_memory_class_t cls, size_t alignment, size_t size);
+void l2d_port_free(void *user, l2d_memory_class_t cls, void *ptr);
 
 void l2d_port_log(int level, const char *tag, const char *fmt, ...);
 int64_t l2d_pe_time_us(void);

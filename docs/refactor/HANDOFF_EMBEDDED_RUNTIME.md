@@ -25,7 +25,7 @@ cmake --build build/host --target l2d_test_runtime
 ./build/host/l2d_test_runtime
 ```
 
-The test printed `L2D_RUNTIME_TESTS_OK` with the four-axis CRCs in `benchmark-regression.md`.
+The host test now opens the worktree five-axis `project/esp.live`. The four-axis CRC table in `benchmark-regression.md` is historical and is not acceptance.
 
 P4, from `firmware/esp32p4/live2d_rt30_baseline`, after `source /home/ubuntu/esp/esp-idf-v5.5.2/export.sh`:
 
@@ -54,7 +54,7 @@ Editor: `project/PainterEngine_LiveEditor/build_msvc.bat` was not run. No MSVC o
 
 The shared sources built into the timing firmware and ran on the connected board. The SD model is the five-axis file. Performance of the stage-0 scenes is inside the 3% band of the Phase 3B short test for raster, SRM, producer, and frame time.
 
-The committed `sdkconfig` remains timing stage 0 with SRM ROI. A second, temporary correctness image (that flag on, then the file restored) produced 459 rows. They match `doc/optimization/phase31_correctness_roi/correctness.csv` and the full-frame Phase 3B CRCs on every compared column. Host four-axis CRC is re-signed against the pre-move oracle. The four-axis host STATIC value `6793bec7` and the device STATIC value `eae4bd6c` are both still true. The device row was reproduced.
+The committed `sdkconfig` remains timing stage 0 with SRM ROI. A second, temporary correctness image (that flag on, then the file restored) produced 459 rows. They match `doc/optimization/phase31_correctness_roi/correctness.csv` and the full-frame Phase 3B CRCs on every compared column. That device capture used the five-axis SD model. The old four-axis host CRC is no longer an acceptance oracle. Current model rules are in `MODEL_BASELINE.md`.
 
 Clear is still the full canvas. Raster is still full. Conversion is ROI SRM. Submit is the full RGB565 buffer. No partial FILL, dirty raster, extra framebuffer, or async PPA was added.
 
@@ -68,10 +68,10 @@ Shared core and software RGB565 are in the image. The example creates a 64 KiB i
 - Import can return before `PX_LiveFrameworkFree` if vector setup fails before the framework exists. Later failures still free.
 - Embedded-nearest requires a tight BGRA stride.
 - `L2D_PC_COMMIT` in the UART protocol is still the literal `78fc634`.
-- Host STATIC CRC `6793bec7` and historical device STATIC `eae4bd6c` both stand. Math was not edited to force them together.
+- Formal host and device tests use only the five-axis `project/esp.live` / `/sdcard/esp.live`. The historical four-axis host CRC is not an acceptance result. Math was not edited to force host and device pixels together.
 - `PX_LiveFramework.c` still contains editor export helpers. The P4 image does not link their string callees.
 - PainterEngine sources in-tree have no license banner. None was added.
-- `project/esp.live` is the user's five-axis file. It is not part of the commit.
+- `project/esp.live` in the worktree is the formal five-axis baseline. Tests refuse any other SHA. The committed git blob at that path is the historical four-axis file and is not the acceptance model.
 
 ## Next round, not this one
 

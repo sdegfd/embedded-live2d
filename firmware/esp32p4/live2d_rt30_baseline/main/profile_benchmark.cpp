@@ -105,9 +105,17 @@ static void run_correctness(l2d_instance_t **instance_io, l2d_model_t **model_io
     const int handles[] = {h.eye_l, h.eye_r, h.neck, h.face, h.mouth};
     char name[64];
     l2d_instance_set_render_scale(instance, 1.0f);
-    printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
+    l2d_instance_info_t model_info;
+    l2d_mesh_counts_t geo;
+    l2d_instance_info(instance, &model_info);
+    l2d_instance_mesh_counts(instance, &geo);
+    printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_path=/sdcard/esp.live\nmodel_sha256=%s\n"
+           "model_size=%u\naxis_count=%d\nlayer_count=%d\nvertex_count=%" PRIu32
+           "\ntriangle_count=%" PRIu32 "\ntexture_count=%d\n"
            "mode=correctness\nscale_q100=100\nsrm_roi=%d\nL2D_META_END\n",
-           L2D_ESP_COMMIT, model_sha256, (unsigned)model_size, CONFIG_L2D_SRM_ROI);
+           L2D_ESP_COMMIT, model_sha256, (unsigned)model_size, model_info.axis_count,
+           model_info.layer_count, geo.vertices, geo.triangles, model_info.texture_count,
+           CONFIG_L2D_SRM_ROI);
     fputs("L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok,backend\n", stdout);
     const int backend_count = CONFIG_L2D_PROFILE_STAGE == 2 ? 4 : 1;
     for (int backend = 0; backend < backend_count; ++backend) {
@@ -169,8 +177,8 @@ static void run_correctness(l2d_instance_t **instance_io, l2d_model_t **model_io
     l2d_model_t *fresh_model = NULL;
     l2d_instance_t *fresh_instance = NULL;
     bool reloaded = model_data && model_size && model_io &&
-                    l2d_model_load_memory(model_data, model_size, &fresh_model) == L2D_OK &&
-                    l2d_instance_create(fresh_model, &fresh_instance) == L2D_OK &&
+                    l2d_model_load_memory(NULL, model_data, model_size, &fresh_model) == L2D_OK &&
+                    l2d_instance_create(fresh_model, NULL, &fresh_instance) == L2D_OK &&
                     l2d_instance_enter_rt30(fresh_instance);
     if (reloaded) {
         l2d_instance_destroy(instance);
@@ -612,7 +620,9 @@ void l2d_run_profile_suite(l2d_instance_t **instance, l2d_model_t **model,
         "optimization=-O2\nrender_task=core0,priority6\nlvgl_task=core0,priority4\n"
         "canvas=%dx%d\nslot=none,synchronous ARGB+RGB565 buffers\n"
         "display=direct panel RGB565\nppa=fill+SRM clients,blocking,blend unused\n"
-        "model_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
+        "model_path=/sdcard/esp.live\nmodel_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
+        "axis_count=%d\nlayer_count=%d\nvertex_count=%" PRIu32 "\ntriangle_count=%" PRIu32
+        "\ntexture_count=%d\n"
         "layers=%d\nvertices=%" PRIu32 "\ntriangles=%" PRIu32
         "\ntextures=%d\ntexture_pixels=%" PRIu32 "\naxes=%d\nsampler=fast-nearest\n"
         "profile_stage=%d\nprofile_mode=%s\nsrm_roi=%d\n"
@@ -622,7 +632,8 @@ void l2d_run_profile_suite(l2d_instance_t **instance, l2d_model_t **model,
         L2D_ESP_COMMIT, L2D_PC_COMMIT, esp_get_idf_version(),
         CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, CONFIG_SPIRAM_SPEED,
         buffer->width, buffer->height, model_sha256, (unsigned)model_size,
-        (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
+        (long long)load_us, l2d_instance_axis_count(playback), info.layer_count, geo.vertices,
+        geo.triangles, info.texture_count, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
         l2d_instance_axis_count(playback), CONFIG_L2D_PROFILE_STAGE,
         CONFIG_L2D_PROFILE_ROI_DIAG ? "roi_diagnostic" :

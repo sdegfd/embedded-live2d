@@ -15,6 +15,7 @@
 #include "live2d_engine.h"
 
 #include "PX_LiveFramework.h"
+#include "l2d_allocator.h"
 #include "l2d_pe_port.h"
 #include "live2d_engine_diag.h"
 
@@ -25,12 +26,14 @@
 
 /** Live2D引擎上下文结构体（不透明类型，对外隐藏实现细节） */
 struct live2d_engine {
-    void *pool_mem;          /**< PSRAM内存池基址 */
-    size_t pool_size;        /**< 内存池大小 */
-    px_memorypool pool;      /**< PainterEngine内存池对象 */
-    PX_LiveFramework live;   /**< PainterEngine Live2D框架实例 */
-    bool loaded;             /**< 模型是否已加载 */
-    uint32_t roi_revision;   /**< Model/view discontinuity generation. */
+    l2d_allocator_t allocator;
+    l2d_memory_class_t mem_class;
+    void *pool_mem;
+    size_t pool_size;
+    px_memorypool pool;
+    PX_LiveFramework live;
+    bool loaded;
+    uint32_t roi_revision;
 };
 
 static const char *TAG = "live2d_engine";
@@ -173,30 +176,36 @@ static void live2d_engine_fast_pixel_shader(px_surface *surface, px_int x, px_in
 
 /* ── 公开API ────────────────────────────────── */
 
-/** 创建Live2D引擎实例，在PSRAM中分配指定大小的内存池。
+/** 创建引擎对象和运行时内存池。分配器由调用方传入；NULL 使用端口默认分配器。
  *
- * @param pool_size   内存池大小（字节），通常建议 4~8 MB
+ * @param pool_size   内存池大小（字节）
  * @param out_engine  输出参数，指向新创建的引擎实例指针
  * @return L2D_OK 成功；L2D_ERR_INVALID_ARG 参数无效；L2D_ERR_NO_MEM 内存不足
  */
-l2d_status_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine)
+l2d_status_t live2d_engine_create(const l2d_allocator_t *allocator, l2d_memory_class_t cls,
+                                 size_t pool_size, live2d_engine_t **out_engine)
 {
+    l2d_allocator_t resolved;
+    live2d_engine_t *engine;
     if (!out_engine || pool_size == 0) {
         return L2D_ERR_INVALID_ARG;
     }
+    l2d_allocator_resolve(allocator, &resolved);
 
-    live2d_engine_t *engine = l2d_port_alloc(sizeof(void *), sizeof(*engine));
+    engine = l2d_heap_alloc(&resolved, cls, sizeof(void *), sizeof(*engine));
     if (!engine) {
         L2D_LOGE(TAG, "Failed to allocate engine context");
         return L2D_ERR_NO_MEM;
     }
     memset(engine, 0, sizeof(*engine));
+    engine->allocator = resolved;
+    engine->mem_class = cls;
 
-    engine->pool_mem = l2d_port_alloc(64, pool_size);
+    engine->pool_mem = l2d_heap_alloc(&engine->allocator, cls, 64, pool_size);
     if (!engine->pool_mem) {
-        L2D_LOGE(TAG, "Failed to allocate Live2D memory pool, need %u bytes",
+        L2D_LOGE(TAG, "Failed to allocate runtime pool, class=%d need %u bytes", (int)cls,
                  (unsigned)pool_size);
-        l2d_port_free(engine);
+        l2d_heap_free(&engine->allocator, cls, engine);
         return L2D_ERR_NO_MEM;
     }
 
@@ -263,6 +272,22 @@ static size_t live2d_instance_pool_size(const PX_LiveFramework *live, int *ok)
     return (bytes + 63u) & ~(size_t)63u;
 }
 
+size_t live2d_engine_mutable_reserve(const live2d_engine_t *engine)
+{
+    int ok = 1;
+    size_t bytes;
+    if (!engine || !engine->loaded) {
+        return 0;
+    }
+    bytes = live2d_instance_pool_size(&engine->live, &ok);
+    return ok ? bytes : 0;
+}
+
+const l2d_allocator_t *live2d_engine_allocator(const live2d_engine_t *engine)
+{
+    return engine ? &engine->allocator : NULL;
+}
+
 static int live2d_copy_vector_payload(px_memorypool *mp, px_vector *dest, const px_vector *src)
 {
     px_int count = src ? src->size : 0;
@@ -284,7 +309,9 @@ static int live2d_copy_vector_payload(px_memorypool *mp, px_vector *dest, const 
     return 1;
 }
 
-l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source, live2d_engine_t **out_engine)
+l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source,
+                                        const l2d_allocator_t *allocator,
+                                        live2d_engine_t **out_engine)
 {
     int ok = 1;
     int initialized = 0;
@@ -303,7 +330,8 @@ l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source, live2d_en
     if (!ok || pool_size == 0) {
         return L2D_ERR_FAIL;
     }
-    status = live2d_engine_create(pool_size, &engine);
+    status = live2d_engine_create(allocator ? allocator : &source->allocator, L2D_MEM_INSTANCE,
+                                  pool_size, &engine);
     if (status != L2D_OK) {
         return status;
     }
@@ -453,9 +481,9 @@ void live2d_engine_destroy(live2d_engine_t *engine)
         engine->loaded = false;
     }
     if (engine->pool_mem) {
-        l2d_port_free(engine->pool_mem);
+        l2d_heap_free(&engine->allocator, engine->mem_class, engine->pool_mem);
     }
-    l2d_port_free(engine);
+    l2d_heap_free(&engine->allocator, engine->mem_class, engine);
 }
 
 /** 从内存数据加载Live2D模型，导入到引擎中并配置渲染参数。

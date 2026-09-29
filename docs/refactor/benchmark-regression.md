@@ -27,7 +27,9 @@ Raw rows: `doc/optimization/refactor_embedded_runtime_stage0/`.
 
 The source digest covers, in path order: `src/engine/live2d_engine.c`, `live2d_engine.h`, `src/api/l2d_api.c`, `src/pipeline/l2d_roi.c`, `src/internal/l2d_config.h`, `src/internal/l2d_pe_port.h`, the compiled `PX_*.c` plus their playback headers, both port `.c` files, `cmake/l2d_sources.cmake`, and `live2d_renderer.c`.
 
-## Host correctness, four-axis
+## Historical host note, four-axis, not acceptance
+
+The table below is an old measurement of git blob `4174304b…`. It is not the current host correctness, benchmark, CRC, memory, ROI, or consistency gate. The only formal model is the five-axis `project/esp.live`. See `MODEL_BASELINE.md`.
 
 Model `786b18e3…`, 798660 bytes, extracted from git blob `4174304b…`. Command:
 
@@ -49,8 +51,6 @@ Result: `L2D_RUNTIME_TESTS_OK`.
 ALL_14_5 and ALL_29 match the historical device rows for the four-axis model. Host STATIC and NECK_15 stay `6793bec7`. The historical device value for those two poses is `eae4bd6c`. That gap existed on the pre-move host oracle. This round did not retune trig or the shader to close it.
 
 The same run checks ROI padding, a truncated file, loose stride, a 160×80 surface, three steady-state frames with the allocator trap, two instances, and a failed reload. `A_AFTER_B` prints hit 0 miss 0 because that update does not change parameters. Its CRC is still `d522cbf1`. The isolation check reads the counters before that second update.
-
-`project/release.live` loads on the host: 34 layers, 54 textures, 32 animations, 0 RT30 axes.
 
 ## P4 timing, five-axis, one short capture
 
@@ -94,7 +94,7 @@ Capture metadata: same model SHA and size, `mode=correctness`, `srm_roi=1`, `sca
 
 Compared with `doc/optimization/phase31_correctness_roi/correctness.csv` on pose, scale, frame_id, ARGB CRC, RGB565 CRC, render_ok, submit_ok, and backend: 459/459 equal. The same ARGB and RGB565 CRCs also equal `phase31_correctness_full`. Every row has `render_ok=1` and `submit_ok=1`. First row STATIC is ARGB `eae4bd6c`, RGB565 `8694d6e4`. Last row is `DYN_MULTI_119`, frame_id 459.
 
-That signs the five-axis device pixels for this ROI SRM path against the Phase 3B captures. It does not re-sign the four-axis host-versus-device STATIC gap.
+That signs the five-axis device pixels for this ROI SRM path against the Phase 3B captures. Host pixels for the same five-axis file are recorded separately in `MODEL_BASELINE.md`. The retired four-axis host CRC is not an acceptance result.
 
 ## Not signed
 

@@ -93,7 +93,7 @@ l2d_status_t l2d_output_create(l2d_output_t **out)
     if (!out) {
         return L2D_ERR_INVALID_ARG;
     }
-    output = (l2d_output_t *)l2d_port_alloc(sizeof(void *), sizeof(*output));
+    output = (l2d_output_t *)l2d_port_alloc(NULL, L2D_MEM_SCRATCH, sizeof(void *), sizeof(*output));
     if (!output) {
         return L2D_ERR_NO_MEM;
     }
@@ -104,7 +104,7 @@ l2d_status_t l2d_output_create(l2d_output_t **out)
 
 void l2d_output_destroy(l2d_output_t *output)
 {
-    l2d_port_free(output);
+    l2d_port_free(NULL, L2D_MEM_SCRATCH, output);
 }
 
 void l2d_output_invalidate(l2d_output_t *output)

@@ -74,7 +74,10 @@ typedef struct {
  * Create a playback instance that shares model's immutable resources.
  * pool bytes reported by l2d_instance_info are the mutable arena only.
  */
-l2d_status_t l2d_instance_create(l2d_model_t *model, l2d_instance_t **out);
+l2d_status_t l2d_instance_create(l2d_model_t *model, const l2d_instance_config_t *config,
+                                 l2d_instance_t **out);
+void l2d_instance_memory_requirements(const l2d_instance_t *instance,
+                                      l2d_memory_requirements_t *out);
 void l2d_instance_destroy(l2d_instance_t *instance);
 
 bool l2d_instance_is_loaded(const l2d_instance_t *instance);

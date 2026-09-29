@@ -16,6 +16,7 @@
 #define L2D_MODEL_H
 
 #include "l2d_types.h"
+#include "l2d_memory.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -38,7 +39,9 @@ typedef struct {
     size_t pool_free;
 } l2d_model_info_t;
 
-l2d_status_t l2d_model_load_memory(const void *bytes, size_t size, l2d_model_t **out);
+l2d_status_t l2d_model_load_memory(const l2d_model_config_t *config, const void *bytes, size_t size,
+                               l2d_model_t **out);
+void l2d_model_memory_requirements(const l2d_model_t *model, l2d_memory_requirements_t *out);
 void l2d_model_destroy(l2d_model_t *model);
 void l2d_model_info(const l2d_model_t *model, l2d_model_info_t *out);
 int l2d_model_animation_count(const l2d_model_t *model);

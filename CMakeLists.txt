@@ -15,6 +15,7 @@ target_include_directories(l2d_runtime
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/memory
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/kernel)
@@ -31,27 +32,18 @@ target_compile_options(l2d_runtime PRIVATE
     -ffunction-sections
     -fdata-sections)
 
-add_executable(l2d_test_runtime tests/runtime/test_runtime.c)
+add_executable(l2d_test_runtime
+    tests/runtime/test_runtime.c
+    tests/support/l2d_test_allocator.c)
 target_link_libraries(l2d_test_runtime PRIVATE l2d_runtime m z crypto)
 target_link_options(l2d_test_runtime PRIVATE -Wl,--gc-sections)
 target_include_directories(l2d_test_runtime PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/support)
 target_compile_options(l2d_test_runtime PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off)
-
-set(L2D_4AXIS_BLOB 4174304b8374697b7dd8cfab034d5398f5243306)
-set(L2D_4AXIS_PATH ${CMAKE_CURRENT_BINARY_DIR}/fixtures/esp_4axis.live)
-add_custom_command(
-    OUTPUT ${L2D_4AXIS_PATH}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/fixtures
-    COMMAND bash -c "git -C '${CMAKE_CURRENT_SOURCE_DIR}' cat-file blob ${L2D_4AXIS_BLOB} > '${L2D_4AXIS_PATH}'"
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/.git/HEAD
-    VERBATIM)
-add_custom_target(l2d_fixture_4axis DEPENDS ${L2D_4AXIS_PATH})
-add_dependencies(l2d_test_runtime l2d_fixture_4axis)
 target_compile_definitions(l2d_test_runtime PRIVATE
-    L2D_FIXTURE_4AXIS="${L2D_4AXIS_PATH}"
-    L2D_RELEASE_LIVE="${CMAKE_CURRENT_SOURCE_DIR}/project/release.live")
+    L2D_MODEL_ESP_LIVE="${CMAKE_CURRENT_SOURCE_DIR}/project/esp.live")
 
 enable_testing()
 add_test(NAME l2d_runtime COMMAND l2d_test_runtime)

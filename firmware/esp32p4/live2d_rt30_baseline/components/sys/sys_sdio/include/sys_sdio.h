@@ -45,7 +45,7 @@ esp_err_t sys_sdio_init(void);
  * 请求串行排队，由 SD 任务分片 fread 到 dst。调用方阻塞到读取完成。
  * 多调用方安全（队列串行化，无并发争 SDMMC）。
  *
- * @param path       SD 卡文件路径（如 "/sdcard/release.live"）
+ * @param path       SD 卡文件路径（正式模型为 "/sdcard/esp.live"）
  * @param dst        调用方提供的目标缓冲（建议 PSRAM，大小 >= 文件大小）
  * @param capacity   dst 缓冲容量（字节）。文件大于此值返回 ESP_ERR_INVALID_SIZE
  * @param out_size   输出实际读取字节数（可为 NULL）

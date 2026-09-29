@@ -7,6 +7,7 @@
 #define L2D_H
 
 #include "l2d_types.h"
+#include "l2d_memory.h"
 #include "l2d_image.h"
 #include "l2d_model.h"
 #include "l2d_instance.h"

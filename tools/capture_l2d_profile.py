@@ -9,8 +9,12 @@ Or parse an existing serial log:
 import argparse
 import pathlib
 import re
+import subprocess
 import sys
 import time
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+BASELINE_CHECK = ROOT / "tools" / "check_l2d_model_baseline.py"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -24,6 +28,9 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--out", type=pathlib.Path, required=True)
     args = parser.parse_args()
+    preflight = subprocess.run([sys.executable, str(BASELINE_CHECK)], cwd=ROOT)
+    if preflight.returncode != 0:
+        return preflight.returncode
     args.out.mkdir(parents=True, exist_ok=True)
     paths = {"L2D_FRAME": args.out / "frames.csv",
              "L2D_SUMMARY": args.out / "summary.csv",
@@ -97,7 +104,16 @@ def main() -> int:
           "summary rows", counts["L2D_SUMMARY"], "detail rows", counts["L2D_DETAIL"],
           "correctness rows", counts["L2D_CORRECTNESS"],
           "visual rows", counts["L2D_VISUAL"], "visual pose rows", counts["L2D_VISUAL_POSE"])
-    return 0 if done and any(counts.values()) else 2
+    if not done or not any(counts.values()):
+        return 2
+    compared = subprocess.run(
+        [sys.executable, str(BASELINE_CHECK), "--metadata", str(args.out / "metadata.txt")],
+        cwd=ROOT)
+    if compared.returncode != 0:
+        print("STOP formal test: captured model does not match project/esp.live. "
+              "Not switching models.", file=sys.stderr)
+        return compared.returncode
+    return 0
 
 
 if __name__ == "__main__":
