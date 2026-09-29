@@ -435,12 +435,160 @@ static void test_model(const char *path)
     free(model);
 }
 
+static void write_u32(unsigned char *p, uint32_t value)
+{
+    p[0] = (unsigned char)value;
+    p[1] = (unsigned char)(value >> 8);
+    p[2] = (unsigned char)(value >> 16);
+    p[3] = (unsigned char)(value >> 24);
+}
+
+static void write_i32(unsigned char *p, int32_t value)
+{
+    write_u32(p, (uint32_t)value);
+}
+
+static void expect_load_error(const void *bytes, size_t size, l2d_status_t want, const char *msg)
+{
+    l2d_model_t *model = NULL;
+    l2d_status_t status = l2d_model_load_memory(NULL, bytes, size, &model);
+    expect_true(status == want, msg);
+    expect_true(model == NULL, msg);
+    l2d_model_destroy(model);
+}
+
+static unsigned char *live_header(uint32_t version, int32_t width, int32_t height, int32_t layers,
+                                  int32_t animations, int32_t textures, size_t *size)
+{
+    unsigned char *bytes = calloc(1, 80);
+    expect_true(bytes != NULL, "header bytes");
+    if (!bytes) {
+        return NULL;
+    }
+    memcpy(bytes, "PainterEngineLiveDBinary", 24);
+    memcpy(bytes + 24, "esp", 3);
+    write_u32(bytes + 56, version);
+    write_i32(bytes + 60, width);
+    write_i32(bytes + 64, height);
+    write_i32(bytes + 68, layers);
+    write_i32(bytes + 72, animations);
+    write_i32(bytes + 76, textures);
+    *size = 80;
+    return bytes;
+}
+
+static void write_layer(unsigned char *p, int32_t parent, int32_t triangles, int32_t vertices)
+{
+    int i;
+    memset(p, 0, 124);
+    memcpy(p, "layer", 5);
+    write_i32(p + 32, parent);
+    for (i = 0; i < 16; ++i) {
+        write_i32(p + 36 + i * 4, -1);
+    }
+    write_i32(p + 100, triangles);
+    write_i32(p + 104, vertices);
+    write_i32(p + 120, -1);
+}
+
+static void test_format_corpus(const char *model_path)
+{
+    size_t size = 0;
+    unsigned char *bytes;
+    unsigned char short_magic[8] = {0};
+    void *model = NULL;
+    live2d_engine_t *engine = NULL;
+    live2d_engine_info_t info;
+
+    bytes = live_header(99, 320, 320, 0, 0, 0, &size);
+    expect_load_error(bytes, size, L2D_ERR_VERSION, "version");
+    free(bytes);
+    bytes = live_header(1, 0, 320, 0, 0, 0, &size);
+    expect_load_error(bytes, size, L2D_ERR_FORMAT, "zero width");
+    free(bytes);
+    bytes = live_header(1, 100000, 320, 0, 0, 0, &size);
+    expect_load_error(bytes, size, L2D_ERR_FORMAT, "huge canvas");
+    free(bytes);
+    bytes = live_header(1, 320, 320, -1, 0, 0, &size);
+    expect_load_error(bytes, size, L2D_ERR_FORMAT, "negative layers");
+    free(bytes);
+    expect_load_error(short_magic, sizeof(short_magic), L2D_ERR_FORMAT, "truncated header");
+
+    bytes = live_header(1, 320, 320, 0, 0, 1, &size);
+    bytes = realloc(bytes, 80 + 48);
+    memset(bytes + 80, 0, 48);
+    write_i32(bytes + 80 + 32, 2);
+    write_i32(bytes + 80 + 36, 2);
+    expect_load_error(bytes, 80 + 48, L2D_ERR_FORMAT, "truncated texture");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 0, 0, 1, &size);
+    bytes = realloc(bytes, 80 + 48);
+    memset(bytes + 80, 0, 48);
+    write_i32(bytes + 80 + 32, 0x40000000);
+    write_i32(bytes + 80 + 36, 4);
+    expect_load_error(bytes, 80 + 48, L2D_ERR_OVERFLOW, "texture overflow");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 1, 0, 0, &size);
+    bytes = realloc(bytes, 80 + 124);
+    write_layer(bytes + 80, 0, 0, 0);
+    expect_load_error(bytes, 80 + 124, L2D_ERR_CORRUPT, "self parent");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 2, 0, 0, &size);
+    bytes = realloc(bytes, 80 + 248);
+    write_layer(bytes + 80, 1, 0, 0);
+    write_layer(bytes + 80 + 124, 0, 0, 0);
+    expect_load_error(bytes, 80 + 248, L2D_ERR_CORRUPT, "parent cycle");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 1, 0, 0, &size);
+    bytes = realloc(bytes, 80 + 124 + 12 + 96);
+    memset(bytes + 80, 0, 124 + 12 + 96);
+    write_layer(bytes + 80, -1, 1, 1);
+    write_i32(bytes + 80 + 124, 9);
+    expect_load_error(bytes, 80 + 124 + 12 + 96, L2D_ERR_CORRUPT, "bad triangle");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 1, 0, 0, &size);
+    bytes = realloc(bytes, 80 + 124 + 96);
+    memset(bytes + 80, 0, 124 + 96);
+    write_layer(bytes + 80, -1, 0, 1);
+    write_u32(bytes + 80 + 124 + 88, 0x7fc00000u);
+    expect_load_error(bytes, 80 + 124 + 96, L2D_ERR_CORRUPT, "nan vertex");
+    free(bytes);
+
+    bytes = live_header(1, 320, 320, 0, 0, 0, &size);
+    bytes = realloc(bytes, 84);
+    memcpy(bytes + 80, "RT30", 4);
+    expect_load_error(bytes, 84, L2D_ERR_CORRUPT, "bad rt30");
+    free(bytes);
+
+    expect_true(read_file(model_path, &model, &size) == 0, "baseline for reload");
+    if (!model) {
+        return;
+    }
+    expect_true(live2d_engine_create(NULL, L2D_MEM_MODEL, 16u * 1024u * 1024u, &engine) == L2D_OK,
+                "engine create");
+    expect_true(live2d_engine_load(engine, model, size) == L2D_OK, "engine load");
+    expect_true(live2d_engine_load(engine, short_magic, sizeof(short_magic)) == L2D_ERR_FORMAT,
+                "failed reload");
+    expect_true(live2d_engine_is_loaded(engine), "previous model remains");
+    live2d_engine_get_info(engine, &info);
+    expect_true(info.layer_count == 11 && info.width == 320, "previous topology");
+    expect_true(live2d_engine_get_realtime_axis_count(engine) == 5, "previous axes");
+    live2d_engine_destroy(engine);
+    free(model);
+}
+
 int main(void)
 {
     const char *path = L2D_MODEL_ESP_LIVE;
     test_pixels();
     test_arena();
     test_roi();
+    test_format_corpus(path);
     test_model(path);
     if (g_fails) {
         fprintf(stderr, "%d failure(s)\n", g_fails);

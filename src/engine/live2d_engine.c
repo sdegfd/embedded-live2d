@@ -13,6 +13,7 @@
  */
 
 #include "live2d_engine.h"
+#include "l2d_format.h"
 
 #include "PX_LiveFramework.h"
 #include "l2d_allocator.h"
@@ -486,41 +487,29 @@ void live2d_engine_destroy(live2d_engine_t *engine)
     l2d_heap_free(&engine->allocator, engine->mem_class, engine);
 }
 
-/** 从内存数据加载Live2D模型，导入到引擎中并配置渲染参数。
- *
- * 若引擎已加载旧模型，会先释放旧模型并重置内存池。
- * 加载完成后自动播放默认动画并启用最近邻采样的快速像素着色器。
- *
- * @param engine      引擎实例
- * @param model_data  模型二进制数据指针
- * @param model_size  模型数据大小（字节）
- * @return L2D_OK 成功；L2D_ERR_INVALID_ARG 参数无效；L2D_ERR_FAIL 导入失败（通常因内存池不足）
- */
+/** 从内存数据加载模型。失败时保留原来已经加载的模型，不重置内存池。 */
 l2d_status_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, size_t model_size)
 {
+    PX_LiveFramework incoming;
+    l2d_status_t status;
     if (!engine || !model_data || model_size == 0) {
         return L2D_ERR_INVALID_ARG;
     }
-    ++engine->roi_revision;
-
-    if (engine->loaded) {
-        PX_LiveFrameworkFree(&engine->live);
-        engine->loaded = false;
-        MP_Reset(&engine->pool);
-        MP_NoCatchError(&engine->pool);
-    }
-
+    memset(&incoming, 0, sizeof(incoming));
     L2D_LOGI(TAG, "Importing PainterEngine Live2D model, file size=%u bytes, pool free=%u bytes",
              (unsigned)model_size, (unsigned)engine->pool.FreeSize);
-
-    if (!PX_LiveFrameworkImport(&engine->pool, &engine->live, (px_void *)model_data,
-                                (px_int)model_size)) {
-        L2D_LOGE(TAG, "PX_LiveFrameworkImport failed, pool free=%u bytes",
+    status = l2d_format_import(&engine->pool, &incoming, model_data, model_size);
+    if (status != L2D_OK) {
+        L2D_LOGE(TAG, "import failed status=%d, pool free=%u bytes", (int)status,
                  (unsigned)engine->pool.FreeSize);
-        return L2D_ERR_FAIL;
+        return status;
     }
-
+    if (engine->loaded) {
+        PX_LiveFrameworkFree(&engine->live);
+    }
+    engine->live = incoming;
     engine->loaded = true;
+    ++engine->roi_revision;
 
     /* 关闭 PainterEngine Live2D 的调试辅助线/关键点/连接线，仅保留模型本体渲染 */
     engine->live.showRange = PX_FALSE;

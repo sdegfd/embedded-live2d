@@ -14,7 +14,9 @@
 
 #include "PX_LiveFramework.h"
 #include "PX_LiveDeviceFormat.h"
+#include "l2d_format.h"
 #include "l2d_pe_port.h"
+#include "l2d_wire.h"
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -4004,282 +4006,379 @@ px_bool PX_LiveFrameworkExport(PX_LiveFramework *plive,px_memory *exportbuffer)
 /* ── 导入功能 ──────────────────────────────────── */
 
 /** 从二进制缓冲区导入 Live2D 框架数据 */
-static px_bool l2d_wire_fits(px_int offset, px_int size, px_uint32 nbytes)
+/* ── 导入功能 ──────────────────────────────────── */
+
+_Static_assert(sizeof(PX_LiveVertex) == 96, "vertex wire and runtime record are 96 bytes");
+_Static_assert(sizeof(PX_Delaunay_Triangle) == 12, "triangle wire record is 12 bytes");
+_Static_assert(sizeof(PX_LiveAnimationFrameHeader) == 40, "animation frame header is 40 bytes");
+
+static int l2d_format_mul_u32(uint32_t a, uint32_t b, uint32_t *out)
 {
-	if (offset < 0 || size < 0) return PX_FALSE;
-	if ((px_uint32)offset > (px_uint32)size) return PX_FALSE;
-	if (nbytes > (px_uint32)size - (px_uint32)offset) return PX_FALSE;
-	return PX_TRUE;
+	if (b != 0 && a > 0xffffffffu / b) {
+		return -1;
+	}
+	*out = a * b;
+	return 0;
 }
 
-static px_bool l2d_wire_mul(px_int count, px_uint32 elem, px_uint32 *out_bytes)
+static int l2d_format_point(l2d_wire_t *wire, px_point *point)
 {
-	if (count < 0 || !out_bytes) return PX_FALSE;
-	if (elem != 0 && (px_uint32)count > 0xffffffffu / elem) return PX_FALSE;
-	*out_bytes = (px_uint32)count * elem;
-	return PX_TRUE;
+	return l2d_wire_f32le(wire, &point->x) || l2d_wire_f32le(wire, &point->y) ||
+	       l2d_wire_f32le(wire, &point->z);
 }
 
-px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void *buffer,px_int size)
+static int l2d_format_point_finite(const px_point *point)
 {
-	px_byte*bBuffer = (px_byte *)buffer;
-	px_int rOffset=0;
-	/* ── 验证文件头 ────────────────────── */
-	
-	do 
-	{
-		if (!buffer || !l2d_wire_fits(0, size, 24) ||
-			!PX_memequ(buffer,"PainterEngineLiveDBinary",24))
-		{
-			return PX_FALSE;
+	return isfinite(point->x) && isfinite(point->y) && isfinite(point->z);
+}
+
+static void l2d_format_store_u32le(px_byte *dst, px_uint32 value)
+{
+	dst[0] = (px_byte)value;
+	dst[1] = (px_byte)(value >> 8);
+	dst[2] = (px_byte)(value >> 16);
+	dst[3] = (px_byte)(value >> 24);
+}
+
+static int l2d_format_layer_cycle(PX_LiveFramework *live)
+{
+	px_int i;
+	for (i = 0; i < live->layers.size; i++) {
+		px_int guard = 0;
+		px_int parent = PX_VECTORAT(PX_LiveLayer, &live->layers, i)->parent_index;
+		while (parent != -1) {
+			if (parent < 0 || parent >= live->layers.size || parent == i || ++guard > live->layers.size) {
+				return -1;
+			}
+			parent = PX_VECTORAT(PX_LiveLayer, &live->layers, parent)->parent_index;
 		}
-		rOffset=24;
-		
-	} while (0);
-	
-	/* ── 导入框架基本属性 ────────────────── */
-	do 
-	{
-		typedef struct  
-		{
-			px_char id[PX_LIVE_ID_MAX_LEN];
-			px_dword version;
-			px_int32 width;
-			px_int32 height;
-			px_int32 layerCount;
-			px_int32 animationCount;
-			px_int32 textureCount;
-		}PX_LiveFrameworkBaseAttributes;
+	}
+	return 0;
+}
 
-		PX_LiveFrameworkBaseAttributes readAttr;
-		if (!l2d_wire_fits(rOffset, size, sizeof(readAttr))) return PX_FALSE;
-		PX_memcpy(&readAttr, bBuffer + rOffset, sizeof(readAttr));
-		rOffset += (px_int)sizeof(readAttr);
+l2d_status_t l2d_format_import(px_memorypool *mp, PX_LiveFramework *plive, const void *bytes,
+                               size_t size)
+{
+	l2d_wire_t wire;
+	l2d_status_t status = L2D_ERR_FORMAT;
+	int started = 0;
+	px_char id[PX_LIVE_ID_MAX_LEN];
+	px_uint32 version;
+	px_int32 width;
+	px_int32 height;
+	px_int32 layer_count;
+	px_int32 animation_count;
+	px_int32 texture_count;
+	px_byte magic[24];
+	px_int i;
 
-		//////////////////////////////////////////////////////////////////////////
-		if (readAttr.version != PX_LIVE_VERSION) return PX_FALSE;
-		if (readAttr.width < 0 || readAttr.height < 0 ||
-			readAttr.layerCount < 0 || readAttr.animationCount < 0 ||
-			readAttr.textureCount < 0) return PX_FALSE;
+	if (!mp || !plive || !bytes || size == 0 || size > 0x7fffffffu) {
+		return L2D_ERR_INVALID_ARG;
+	}
+	l2d_wire_init(&wire, bytes, size);
+	if (l2d_wire_bytes(&wire, magic, 24) != 0 ||
+	    PX_memequ(magic, "PainterEngineLiveDBinary", 24) == 0) {
+		return L2D_ERR_FORMAT;
+	}
+	if (l2d_wire_bytes(&wire, id, sizeof(id)) != 0 || l2d_wire_u32le(&wire, &version) != 0 ||
+	    l2d_wire_i32le(&wire, &width) != 0 || l2d_wire_i32le(&wire, &height) != 0 ||
+	    l2d_wire_i32le(&wire, &layer_count) != 0 || l2d_wire_i32le(&wire, &animation_count) != 0 ||
+	    l2d_wire_i32le(&wire, &texture_count) != 0) {
+		return L2D_ERR_FORMAT;
+	}
+	if (version != PX_LIVE_VERSION) {
+		return L2D_ERR_VERSION;
+	}
+	if (width <= 0 || height <= 0 || width > 8192 || height > 8192 || layer_count < 0 ||
+	    animation_count < 0 || texture_count < 0 || layer_count > PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER ||
+	    animation_count > 1024 || texture_count > 1024) {
+		return L2D_ERR_FORMAT;
+	}
 
-		PX_memset(plive,0,sizeof(PX_LiveFramework));
+	PX_memset(plive, 0, sizeof(*plive));
+	started = 1;
+	PX_memcpy(plive->id, id, sizeof(plive->id));
+	plive->width = width;
+	plive->height = height;
+	plive->mp = mp;
+	plive->animationMode = PX_LIVE_MODE_NEUTRAL;
+	PX_LiveRealtimeInitialize(&plive->realtime, mp);
+	if (!PX_VectorInitialize(mp, &plive->layers, sizeof(PX_LiveLayer), layer_count) ||
+	    !PX_VectorInitialize(mp, &plive->livetextures, sizeof(PX_LiveTexture), texture_count) ||
+	    !PX_VectorInitialize(mp, &plive->liveAnimations, sizeof(PX_LiveAnimation), animation_count)) {
+		status = L2D_ERR_NO_MEM;
+		goto fail;
+	}
+	plive->currentEditAnimationIndex = -1;
+	plive->currentEditFrameIndex = -1;
+	plive->currentEditLayerIndex = -1;
+	plive->currentEditVertexIndex = -1;
 
-		PX_memcpy(plive->id,readAttr.id,sizeof(plive->id));
-		plive->width=readAttr.width;
-		plive->height=readAttr.height;
-
-		//////////////////////////////////////////////////////////////////////////
-		plive->mp=mp;
-		plive->animationMode=PX_LIVE_MODE_NEUTRAL;
-		/* realtime 子结构被上面的 memset 清零（realtime.mp=NULL），必须在此重新初始化，
-		 * 否则 RT30 尾部导入时 PX_LiveRealtimePrepareRuntime 用 NULL 池触发 Load access fault。 */
-		PX_LiveRealtimeInitialize(&plive->realtime,mp);
-		if(!PX_VectorInitialize(mp,&plive->layers,sizeof(PX_LiveLayer),readAttr.layerCount))return PX_FALSE;
-		plive->layers.size=readAttr.layerCount;
-
-		if(!PX_VectorInitialize(mp,&plive->livetextures,sizeof(PX_LiveTexture),readAttr.textureCount))return PX_FALSE;
-		plive->livetextures.size=readAttr.textureCount;
-
-		if(!PX_VectorInitialize(mp,&plive->liveAnimations,sizeof(PX_LiveAnimation),readAttr.animationCount))return PX_FALSE;
-		plive->liveAnimations.size=readAttr.animationCount;
-
-		plive->reg_animation=0;
-		plive->reg_bp=0;
-		plive->reg_duration=0;
-		plive->reg_elapsed=0;
-		plive->reg_ip=0;
-
-		plive->currentEditAnimationIndex=-1;
-		plive->currentEditFrameIndex=-1;
-		plive->currentEditLayerIndex=-1;
-		plive->currentEditVertexIndex=-1;
-	} while (0);
-
-	
-	/////////////////////////////////////////////* ── 导入纹理数据 ──────────────────── */
-	do 
-	{
-		typedef struct  
-		{
-			px_char id[PX_LIVE_ID_MAX_LEN];
-			px_int32 width;
-			px_int32 height;
-			px_int32 textureOffsetX;
-			px_int32 textureOffsetY;
-		}PX_LiveTextureImportInfo;
-
-		px_int i;
-		for (i=0;i<plive->livetextures.size;i++)
-		{
-			PX_LiveTexture *pTexture=PX_VECTORAT(PX_LiveTexture,&plive->livetextures,i);
-			do 
-			{
-				px_color *prenderColor;
-				px_int k;
-				px_uint32 pixel_bytes;
-				PX_LiveTextureImportInfo texInfo;
-				if (!l2d_wire_fits(rOffset, size, sizeof(texInfo))) goto _ERROR;
-				PX_memcpy(&texInfo, bBuffer + rOffset, sizeof(texInfo));
-				rOffset += (px_int)sizeof(texInfo);
-				if (texInfo.width <= 0 || texInfo.height <= 0 ||
-					!l2d_wire_mul(texInfo.width, 4u, &pixel_bytes) ||
-					!l2d_wire_mul(texInfo.height, pixel_bytes, &pixel_bytes) ||
-					!l2d_wire_fits(rOffset, size, pixel_bytes))
-					goto _ERROR;
-				PX_memset(pTexture,0,sizeof(PX_LiveTexture));
-
-				if(!PX_TextureCreate(mp,&pTexture->Texture,texInfo.width,texInfo.height))
-					goto _ERROR;
-				PX_memcpy(pTexture->id,texInfo.id,sizeof(pTexture->id));
-				pTexture->textureOffsetX=texInfo.textureOffsetX;
-				pTexture->textureOffsetY=texInfo.textureOffsetY;
-
-				prenderColor = pTexture->Texture.surfaceBuffer;
-				for (k = 0; k < texInfo.width * texInfo.height; k++)
-				{
-					const px_byte *src = bBuffer + rOffset + (px_uint32)k * 4u;
-					prenderColor[k]._argb.r=src[0];
-					prenderColor[k]._argb.g=src[1];
-					prenderColor[k]._argb.b=src[2];
-					prenderColor[k]._argb.a=src[3];
-				}
-				rOffset += (px_int)pixel_bytes;
-			} while (0);
+	for (i = 0; i < texture_count; i++) {
+		PX_LiveTexture *texture = PX_VECTORAT(PX_LiveTexture, &plive->livetextures, i);
+		px_char texture_id[PX_LIVE_ID_MAX_LEN];
+		px_int32 texture_width;
+		px_int32 texture_height;
+		px_int32 offset_x;
+		px_int32 offset_y;
+		px_uint32 row_bytes;
+		px_uint32 pixel_bytes;
+		const px_byte *pixels;
+		px_color *dest;
+		px_uint32 pixel_count;
+		px_uint32 k;
+		if (l2d_wire_bytes(&wire, texture_id, sizeof(texture_id)) != 0 ||
+		    l2d_wire_i32le(&wire, &texture_width) != 0 ||
+		    l2d_wire_i32le(&wire, &texture_height) != 0 ||
+		    l2d_wire_i32le(&wire, &offset_x) != 0 || l2d_wire_i32le(&wire, &offset_y) != 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
 		}
-	} while (0);
-
-	/* ── 导入图层数据 ──────────────────── */
-	do 
-	{
-		typedef struct  
-		{
-			px_char id[PX_LIVE_ID_MAX_LEN];
-			px_int parent_index;
-			px_int child_index[PX_LIVE_LAYER_MAX_LINK_NODE];
-			px_int triangleCount;
-			px_int verticesCount;
-			px_point KeyPoint;
-			px_int  LinkTextureIndex;
-		}PX_LiveFramework_LayerExportInfo;
-
-		px_int i;
-		for (i=0;i<plive->layers.size;i++)
-		{
-			PX_LiveLayer *pLayer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
-			PX_LiveFramework_LayerExportInfo readLayer;
-			px_uint32 tri_bytes, vert_bytes;
-			if (!l2d_wire_fits(rOffset, size, sizeof(readLayer))) goto _ERROR;
-			PX_memcpy(&readLayer, bBuffer + rOffset, sizeof(readLayer));
-			rOffset += (px_int)sizeof(readLayer);
-			if (readLayer.parent_index < -1 || readLayer.parent_index >= plive->layers.size ||
-				readLayer.triangleCount < 0 || readLayer.verticesCount < 0 ||
-				!l2d_wire_mul(readLayer.triangleCount, sizeof(PX_Delaunay_Triangle), &tri_bytes) ||
-				!l2d_wire_mul(readLayer.verticesCount, sizeof(PX_LiveVertex), &vert_bytes) ||
-				!l2d_wire_fits(rOffset, size, tri_bytes) ||
-				(px_uint32)rOffset > 0xffffffffu - tri_bytes ||
-				!l2d_wire_fits((px_int)((px_uint32)rOffset + tri_bytes), size, vert_bytes))
-				goto _ERROR;
-
-			PX_memset(pLayer,0,sizeof(PX_LiveLayer));
-			PX_memcpy(pLayer->id,readLayer.id,sizeof(pLayer->id));
-			pLayer->keyPoint=readLayer.KeyPoint;
-			pLayer->LinkTextureIndex=readLayer.LinkTextureIndex;
-			pLayer->RenderTextureIndex=pLayer->LinkTextureIndex;
-
-			pLayer->rel_beginStretch=1;
-			pLayer->rel_currentStretch=1;
-			pLayer->rel_endStretch=1;
-			pLayer->visible=PX_TRUE;
-
-			if(!PX_VectorInitialize(mp,&pLayer->triangles,sizeof(PX_Delaunay_Triangle),readLayer.triangleCount)) 
-				goto _ERROR;
-			pLayer->triangles.size=readLayer.triangleCount;
-
-			if(!PX_VectorInitialize(mp,&pLayer->vertices,sizeof(PX_LiveVertex),readLayer.verticesCount)) 
-				goto _ERROR;
-			pLayer->vertices.size=readLayer.verticesCount;
-
-
-			pLayer->parent_index=readLayer.parent_index;
-
-			do 
-			{
-				px_int j;
-				for (j=0;j<PX_COUNTOF(readLayer.child_index);j++)
-				{
-					pLayer->child_index[j]=readLayer.child_index[j];
-				}
-			} while (0);
-
-			
-			PX_memcpy(pLayer->triangles.data,bBuffer+rOffset,tri_bytes);
-			rOffset += (px_int)tri_bytes;
-			PX_memcpy(pLayer->vertices.data,bBuffer+rOffset,vert_bytes);
-			rOffset += (px_int)vert_bytes;
+		if (texture_width <= 0 || texture_height <= 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
 		}
-	} while (0);
-
-	/* ── 导入动画数据 ──────────────────── */
-	do 
-	{
-		typedef struct  
-		{
-			px_char id[PX_LIVE_ID_MAX_LEN];
-			px_int32  size;
-		}PX_LiveAnimationImportInfo;
-
-		px_int i;
-		for (i=0;i<plive->liveAnimations.size;i++)
-		{
-			PX_LiveAnimation *pAnimation=PX_VECTORAT(PX_LiveAnimation,&plive->liveAnimations,i);
-			
-			//import Live Animation structure
-			do 
-			{
-				PX_LiveAnimationImportInfo animInfo;
-				if (!l2d_wire_fits(rOffset, size, sizeof(animInfo))) goto _ERROR;
-				PX_memcpy(&animInfo, bBuffer + rOffset, sizeof(animInfo));
-				rOffset += (px_int)sizeof(animInfo);
-				if (animInfo.size < 0) goto _ERROR;
-
-				PX_memcpy(pAnimation->id,animInfo.id,sizeof(pAnimation->id));
-
-				if(!PX_VectorInitialize(mp,&pAnimation->framesMemPtr,sizeof(px_void *),animInfo.size))goto _ERROR;
-				pAnimation->framesMemPtr.size=animInfo.size;
-			} while (0);
-
-			//import live animation frame
-			do 
-			{
-				px_int j;
-				for (j=0;j<pAnimation->framesMemPtr.size;j++)
-				{
-					//import size
-					px_void **ppdata;
-					px_uint32 payloadsize;
-					PX_LiveAnimationFrameHeader frameHeader;
-					ppdata=PX_VECTORAT(px_void*,&pAnimation->framesMemPtr,j);
-					if (!l2d_wire_fits(rOffset, size, sizeof(frameHeader))) goto _ERROR;
-					PX_memcpy(&frameHeader, bBuffer + rOffset, sizeof(frameHeader));
-					if (frameHeader.size < 0) goto _ERROR;
-					payloadsize=(px_uint32)sizeof(PX_LiveAnimationFrameHeader)+(px_uint32)frameHeader.size;
-					if (payloadsize < (px_uint32)sizeof(PX_LiveAnimationFrameHeader) ||
-						!l2d_wire_fits(rOffset, size, payloadsize)) goto _ERROR;
-
-					*ppdata=MP_Malloc(mp,(px_int)payloadsize);
-					if(*ppdata==PX_NULL) goto _ERROR;
-					PX_memcpy(*ppdata,bBuffer+rOffset,payloadsize);
-					rOffset+=(px_int)payloadsize;
-				}
-			} while (0);
+		if (l2d_format_mul_u32((px_uint32)texture_width, (px_uint32)texture_height, &pixel_count) != 0 ||
+		    l2d_format_mul_u32((px_uint32)texture_width, 4u, &row_bytes) != 0 ||
+		    l2d_format_mul_u32((px_uint32)texture_height, row_bytes, &pixel_bytes) != 0) {
+			status = L2D_ERR_OVERFLOW;
+			goto fail;
 		}
-	} while (0);
-		if (rOffset<size && !PX_LiveFrameworkImportRealtimeTrailer(mp,plive,(const px_byte *)bBuffer+rOffset,(px_uint32)(size-rOffset))) goto _ERROR;
+		if (l2d_wire_slice(&wire, pixel_bytes, &pixels) != 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
+		}
+		PX_memset(texture, 0, sizeof(*texture));
+		if (!PX_TextureCreate(mp, &texture->Texture, texture_width, texture_height)) {
+			status = L2D_ERR_NO_MEM;
+			goto fail;
+		}
+		plive->livetextures.size = i + 1;
+		PX_memcpy(texture->id, texture_id, sizeof(texture->id));
+		texture->textureOffsetX = offset_x;
+		texture->textureOffsetY = offset_y;
+		dest = texture->Texture.surfaceBuffer;
+		for (k = 0; k < pixel_count; k++) {
+			const px_byte *src = pixels + (px_uint32)k * 4u;
+			dest[k]._argb.r = src[0];
+			dest[k]._argb.g = src[1];
+			dest[k]._argb.b = src[2];
+			dest[k]._argb.a = src[3];
+		}
+	}
+
+	for (i = 0; i < layer_count; i++) {
+		PX_LiveLayer *layer = PX_VECTORAT(PX_LiveLayer, &plive->layers, i);
+		px_char layer_id[PX_LIVE_ID_MAX_LEN];
+		px_int32 parent_index;
+		px_int32 child_index[PX_LIVE_LAYER_MAX_LINK_NODE];
+		px_int32 triangle_count;
+		px_int32 vertex_count;
+		px_point key_point;
+		px_int32 link_texture;
+		px_int j;
+		if (l2d_wire_bytes(&wire, layer_id, sizeof(layer_id)) != 0 ||
+		    l2d_wire_i32le(&wire, &parent_index) != 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
+		}
+		for (j = 0; j < PX_LIVE_LAYER_MAX_LINK_NODE; j++) {
+			if (l2d_wire_i32le(&wire, &child_index[j]) != 0) {
+				status = L2D_ERR_FORMAT;
+				goto fail;
+			}
+		}
+		if (l2d_wire_i32le(&wire, &triangle_count) != 0 ||
+		    l2d_wire_i32le(&wire, &vertex_count) != 0 ||
+		    l2d_format_point(&wire, &key_point) != 0 ||
+		    l2d_wire_i32le(&wire, &link_texture) != 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
+		}
+		if (!l2d_format_point_finite(&key_point)) {
+			status = L2D_ERR_CORRUPT;
+			goto fail;
+		}
+		if (triangle_count < 0 || vertex_count < 0) {
+			status = L2D_ERR_CORRUPT;
+			goto fail;
+		}
+		{
+			px_uint32 mesh_bytes;
+			if (l2d_format_mul_u32((px_uint32)triangle_count, sizeof(PX_Delaunay_Triangle),
+			                       &mesh_bytes) != 0 ||
+			    mesh_bytes > 0x7fffffffu ||
+			    l2d_format_mul_u32((px_uint32)vertex_count, sizeof(PX_LiveVertex), &mesh_bytes) != 0 ||
+			    mesh_bytes > 0x7fffffffu) {
+				status = L2D_ERR_OVERFLOW;
+				goto fail;
+			}
+		}
+		if (parent_index < -1 || parent_index >= layer_count) {
+			status = L2D_ERR_CORRUPT;
+			goto fail;
+		}
+		PX_memset(layer, 0, sizeof(*layer));
+		PX_memcpy(layer->id, layer_id, sizeof(layer->id));
+		layer->keyPoint = key_point;
+		layer->LinkTextureIndex = link_texture;
+		layer->RenderTextureIndex = link_texture;
+		layer->rel_beginStretch = 1;
+		layer->rel_currentStretch = 1;
+		layer->rel_endStretch = 1;
+		layer->visible = PX_TRUE;
+		layer->parent_index = parent_index;
+		for (j = 0; j < PX_LIVE_LAYER_MAX_LINK_NODE; j++) {
+			layer->child_index[j] = child_index[j];
+		}
+		if (!PX_VectorInitialize(mp, &layer->triangles, sizeof(PX_Delaunay_Triangle), triangle_count)) {
+			status = L2D_ERR_NO_MEM;
+			goto fail;
+		}
+		if (!PX_VectorInitialize(mp, &layer->vertices, sizeof(PX_LiveVertex), vertex_count)) {
+			PX_VectorFree(&layer->triangles);
+			status = L2D_ERR_NO_MEM;
+			goto fail;
+		}
+		layer->triangles.size = triangle_count;
+		layer->vertices.size = vertex_count;
+		plive->layers.size = i + 1;
+		for (j = 0; j < triangle_count; j++) {
+			PX_Delaunay_Triangle *triangle = PX_VECTORAT(PX_Delaunay_Triangle, &layer->triangles, j);
+			px_int32 i1;
+			px_int32 i2;
+			px_int32 i3;
+			if (l2d_wire_i32le(&wire, &i1) != 0 || l2d_wire_i32le(&wire, &i2) != 0 ||
+			    l2d_wire_i32le(&wire, &i3) != 0) {
+				status = L2D_ERR_FORMAT;
+				goto fail;
+			}
+			if (i1 < 0 || i2 < 0 || i3 < 0 || i1 >= vertex_count || i2 >= vertex_count ||
+			    i3 >= vertex_count) {
+				status = L2D_ERR_CORRUPT;
+				goto fail;
+			}
+			triangle->index1 = i1;
+			triangle->index2 = i2;
+			triangle->index3 = i3;
+		}
+		for (j = 0; j < vertex_count; j++) {
+			PX_LiveVertex *vertex = PX_VECTORAT(PX_LiveVertex, &layer->vertices, j);
+			PX_memset(vertex, 0, sizeof(*vertex));
+			if (l2d_format_point(&wire, &vertex->sourcePosition) != 0 ||
+			    l2d_format_point(&wire, &vertex->currentPosition) != 0 ||
+			    l2d_format_point(&wire, &vertex->normal) != 0 ||
+			    l2d_format_point(&wire, &vertex->beginTranslation) != 0 ||
+			    l2d_format_point(&wire, &vertex->currentTranslation) != 0 ||
+			    l2d_format_point(&wire, &vertex->endTranslation) != 0 ||
+			    l2d_format_point(&wire, &vertex->velocity) != 0 ||
+			    l2d_wire_i32le(&wire, &vertex->k) != 0 || l2d_wire_f32le(&wire, &vertex->u) != 0 ||
+			    l2d_wire_f32le(&wire, &vertex->v) != 0) {
+				status = L2D_ERR_FORMAT;
+				goto fail;
+			}
+			if (!l2d_format_point_finite(&vertex->sourcePosition) ||
+			    !l2d_format_point_finite(&vertex->currentPosition) || !isfinite(vertex->u) ||
+			    !isfinite(vertex->v)) {
+				status = L2D_ERR_CORRUPT;
+				goto fail;
+			}
+		}
+	}
+	if (l2d_format_layer_cycle(plive) != 0) {
+		status = L2D_ERR_CORRUPT;
+		goto fail;
+	}
+
+	for (i = 0; i < animation_count; i++) {
+		PX_LiveAnimation *animation = PX_VECTORAT(PX_LiveAnimation, &plive->liveAnimations, i);
+		px_char animation_id[PX_LIVE_ID_MAX_LEN];
+		px_int32 frame_count;
+		px_int j;
+		if (l2d_wire_bytes(&wire, animation_id, sizeof(animation_id)) != 0 ||
+		    l2d_wire_i32le(&wire, &frame_count) != 0) {
+			status = L2D_ERR_FORMAT;
+			goto fail;
+		}
+		if (frame_count < 0) {
+			status = L2D_ERR_CORRUPT;
+			goto fail;
+		}
+		PX_memcpy(animation->id, animation_id, sizeof(animation->id));
+		if (!PX_VectorInitialize(mp, &animation->framesMemPtr, sizeof(px_void *), frame_count)) {
+			status = L2D_ERR_NO_MEM;
+			goto fail;
+		}
+		if (animation->framesMemPtr.data && frame_count > 0) {
+			PX_memset(animation->framesMemPtr.data, 0, sizeof(px_void *) * (px_uint)frame_count);
+		}
+		animation->framesMemPtr.size = frame_count;
+		plive->liveAnimations.size = i + 1;
+		for (j = 0; j < frame_count; j++) {
+			px_void **slot = PX_VECTORAT(px_void *, &animation->framesMemPtr, j);
+			px_char frame_id[PX_LIVE_ID_MAX_LEN];
+			px_int32 payload_size;
+			px_uint32 duration_ms;
+			px_uint32 total;
+			const px_byte *payload;
+			px_byte *owned;
+			if (l2d_wire_bytes(&wire, frame_id, sizeof(frame_id)) != 0 ||
+			    l2d_wire_i32le(&wire, &payload_size) != 0 ||
+			    l2d_wire_u32le(&wire, &duration_ms) != 0) {
+				status = L2D_ERR_FORMAT;
+				goto fail;
+			}
+			if (payload_size < 0) {
+				status = L2D_ERR_CORRUPT;
+				goto fail;
+			}
+			if (l2d_format_mul_u32(1u, (px_uint32)payload_size, &total) != 0 ||
+			    total > 0xffffffffu - (px_uint32)sizeof(PX_LiveAnimationFrameHeader)) {
+				status = L2D_ERR_OVERFLOW;
+				goto fail;
+			}
+			total += (px_uint32)sizeof(PX_LiveAnimationFrameHeader);
+			if (l2d_wire_slice(&wire, payload_size, &payload) != 0) {
+				status = L2D_ERR_FORMAT;
+				goto fail;
+			}
+			owned = (px_byte *)MP_Malloc(mp, (px_int)total);
+			if (!owned) {
+				status = L2D_ERR_NO_MEM;
+				goto fail;
+			}
+			PX_memset(owned, 0, total);
+			PX_memcpy(owned, frame_id, sizeof(frame_id));
+			l2d_format_store_u32le(owned + PX_LIVE_ID_MAX_LEN, (px_uint32)payload_size);
+			l2d_format_store_u32le(owned + PX_LIVE_ID_MAX_LEN + 4, duration_ms);
+			if (payload_size > 0) {
+				PX_memcpy(owned + sizeof(PX_LiveAnimationFrameHeader), payload, (px_uint)payload_size);
+			}
+			*slot = owned;
+		}
+	}
+
+	if (wire.offset < wire.size &&
+	    !PX_LiveFrameworkImportRealtimeTrailer(mp, plive, (const px_byte *)bytes + wire.offset,
+	                                           (px_uint32)(wire.size - wire.offset))) {
+		status = L2D_ERR_CORRUPT;
+		goto fail;
+	}
 	PX_LiveFrameworkReset(plive);
-	return PX_TRUE;
-_ERROR:
-	PX_LiveFrameworkFree(plive);
-	return PX_FALSE;
+	return L2D_OK;
+fail:
+	if (started) {
+		PX_LiveFrameworkFree(plive);
+	}
+	return status;
+}
+
+px_bool PX_LiveFrameworkImport(px_memorypool *mp, PX_LiveFramework *plive, px_void *buffer, px_int size)
+{
+	if (!buffer || size <= 0) {
+		return PX_FALSE;
+	}
+	return l2d_format_import(mp, plive, buffer, (size_t)size) == L2D_OK;
 }
 
 /* ── PX_Live 镜像 API ───────────────────────────── */

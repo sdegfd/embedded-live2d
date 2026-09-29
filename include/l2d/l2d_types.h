@@ -31,7 +31,12 @@ typedef enum {
     L2D_ERR_NO_MEM = 2,
     L2D_ERR_FAIL = 3,
     L2D_ERR_UNSUPPORTED = 4,
-    L2D_ERR_RANGE = 5
+    L2D_ERR_RANGE = 5,
+    L2D_ERR_FORMAT = 6,
+    L2D_ERR_VERSION = 7,
+    L2D_ERR_OVERFLOW = 8,
+    L2D_ERR_CORRUPT = 9,
+    L2D_ERR_STATE = 10
 } l2d_status_t;
 
 typedef enum {

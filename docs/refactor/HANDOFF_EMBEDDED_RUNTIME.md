@@ -64,7 +64,7 @@ Shared core and software RGB565 are in the image. The example creates a 64 KiB i
 
 ## Limits that stay
 
-- Load is not transactional. A failed reload drops the old model in that instance.
+- A failed import leaves the previously loaded model in place. The public load still returns a new object, so a failed call does not destroy a model the caller already holds.
 - Import can return before `PX_LiveFrameworkFree` if vector setup fails before the framework exists. Later failures still free.
 - Embedded-nearest requires a tight BGRA stride.
 - `L2D_PC_COMMIT` in the UART protocol is still the literal `78fc634`.

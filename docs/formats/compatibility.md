@@ -12,7 +12,7 @@ Playback reads the existing PainterEngine `.live` file. This round does not defi
 
 ## Wire layout is not the runtime struct
 
-Import copies headers into aligned local structs, then range-checks counts before `memcpy` of pixels, triangles, or vertices. Texture bytes are `r,g,b,a` and are copied by channel into `px_color`. Vertex and triangle arrays use the in-memory `PX_LiveVertex` and `PX_Delaunay_Triangle` sizes only after the byte count is known to fit.
+Import reads the legacy image with `src/format/l2d_wire.c`. Each integer and float is taken as an explicit little-endian field. A float is the IEEE754 bit pattern copied into a host float. Texture bytes are `r,g,b,a` and are copied by channel into `px_color`. Vertices and triangles are written field by field into runtime records. The file is not cast onto a runtime struct.
 
 `PX_Delaunay_Triangle` is three 32-bit indices (12 bytes). The runtime does not call the Delaunay builder. `px_int` in these headers is a 32-bit `int` on both the host LP64 build and the device ILP32 build. `px_long` is not used in the wire structs that import reads.
 
@@ -21,16 +21,18 @@ Changing `sizeof(PX_LiveLayer)` or adding a field to `PX_LiveVertex` would desyn
 ## Checks before a read
 
 - Magic is tested only when at least 24 bytes are present.
-- Negative width, height, layer, animation, or texture counts fail before vectors are created.
-- Texture width and height must be positive. `width * 4 * height` is checked for overflow and for a fit in the file before any pixel is read.
-- Parent index must be `-1` or inside `[0, layerCount)`.
-- Triangle and vertex counts must be non-negative, and both payloads must fit before the copy.
-- Animation frame payload size is checked before the pool allocation and the copy.
-- RT30 binding and sample ranges stay in the existing trailer validator.
+- Width and height must be positive and at most 8192. Zero or larger canvas sizes fail before vectors are created.
+- Negative layer, animation, or texture counts fail before vectors are created.
+- Texture width and height must be positive. `width * height * 4` is checked for overflow and for a fit in the file before any pixel is read.
+- Parent index must be `-1` or inside `[0, layerCount)`. A self-parent or a cycle fails after the layer records are read.
+- Triangle indices must lie inside that layer's vertex array. Non-finite vertex positions or UV values fail.
+- Animation frame payload size is checked before the pool allocation.
+- A short or inconsistent RT30 trailer fails. A tail that is not RT30 is ignored.
+- A vector slot is published only after its allocation exists, so a failed import can free what it created.
 
-A 64-byte buffer fails the host test. Formal CRC is measured on the five-axis `project/esp.live` only. See `docs/refactor/MODEL_BASELINE.md`.
+A truncated buffer fails the host test. Formal CRC is measured on the five-axis `project/esp.live` only. See `docs/refactor/MODEL_BASELINE.md`.
 
-Early failure before the framework is initialized returns without `PX_LiveFrameworkFree`. A failure after vectors exist uses the existing `_ERROR` free path. A failed reload still drops the previously loaded model. That order is unchanged so the pool peak stays the same.
+A failed import frees only the framework it was filling. Loading again into an engine that already holds a model leaves that model in place.
 
 ## Budgets
 

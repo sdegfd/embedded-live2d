@@ -97,8 +97,8 @@ void live2d_engine_share_view(const live2d_engine_t *engine,
                               live2d_engine_share_view_t *out);
 
 /**
- * Import a .live image. On failure after a previous model was loaded, the
- * previous model is already released and is_loaded is false.
+ * Import a .live image. A failed import leaves a previously loaded model in
+ * place and does not reset its pool.
  */
 l2d_status_t live2d_engine_load(live2d_engine_t *engine, const void *model_data,
                                 size_t model_size);
