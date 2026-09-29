@@ -8,4 +8,4 @@ The common short-v1 preset and scenario drive live in `Live2D/bench/scenarios/`.
 4. Capture with `python3 examples/esp32p4/tools/capture_l2d_profile.py --port /dev/ttyUSB0 --out docs/benchmarks/<run>` from the repository root.
 5. For correctness, use the separate correctness build and compare all ordered CRC rows with `examples/esp32p4/tools/compare_l2d_crc.py`. Restore timing config before benchmarking.
 
-Historical Phase 0–3B raw CSV, metadata and serial logs are retained in `docs/optimization/`. The [pre-reorganization refactor baseline](refactor-regression.md) reports 459/459 matching P4 correctness rows and a 27,335.74 us MULTI_AXIS average over 50 frames. Those numbers are historical until repeated on the reorganized tree.
+Historical Phase 0–3B raw CSV, metadata and serial logs are retained in `docs/optimization/`. The [pre-reorganization refactor baseline](refactor-regression.md) reports 459/459 matching P4 correctness rows and a 27,335.74 us MULTI_AXIS average over 50 frames. The [final reorganization capture](reorg-final.md) repeats correctness and timing on the reorganized tree and records the regression.

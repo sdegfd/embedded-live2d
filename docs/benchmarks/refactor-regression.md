@@ -84,7 +84,7 @@ Recorded from the timing ELF before a later correctness rebuild replaced the bui
 - Host `l2d_test_runtime` text 72552, data 808, bss 2120.
 - S3 `l2d_s3_smoke.bin` 216832 bytes. Build verified with xtensa-esp32s3-elf-gcc 14.2.0. Not flashed.
 
-Pool occupancy after load is in `docs/formats/compatibility.md`. Steady state does not call the port allocator. The 16 MiB pool is one allocation at create.
+Pool occupancy at the time of this historical capture is in `docs/formats/compatibility.md`. Steady state does not call the port allocator. The model arena was 16 MiB in this capture; the reorganized runtime now sizes it from the wire payload.
 
 ## Device CRC, five-axis, separate image
 

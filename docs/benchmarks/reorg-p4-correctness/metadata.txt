@@ -1,0 +1,12 @@
+esp_commit=43e9d01ec87456190c0191826fb192f4ab41cb0c
+model_path=/sdcard/esp.live
+model_sha256=1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100
+model_size=800796
+axis_count=5
+layer_count=11
+vertex_count=227
+triangle_count=257
+texture_count=12
+mode=correctness
+scale_q100=100
+srm_roi=1

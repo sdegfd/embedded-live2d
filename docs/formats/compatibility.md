@@ -36,6 +36,6 @@ A failed import frees only the framework it was filling. Loading again into an e
 
 ## Budgets
 
-The file format does not encode an ESP32-P4 or ESP32-S3 memory ceiling. The caller passes `pool_bytes`. The 16 MiB P4 pool and the 64 KiB S3 smoke pool are application choices.
+The file format does not encode an ESP32-P4 or ESP32-S3 memory ceiling. The public model loader currently reserves `2 * wire_bytes + 1 MiB` for its immutable model arena, with an overflow check. For the formal 800796-byte model this is 2650168 bytes; the measured used portion is 837184 bytes. Each instance has a separate mutable arena. The internal engine and S3 smoke example can still choose their own `pool_bytes`. The sizing rule is a conservative heuristic, so other models must be tested against their own import and memory requirements.
 
 Formal memory numbers come from the five-axis `models/esp.live` host run and are recorded in `docs/formats/model-baseline.md`. Older pool notes for a four-axis git blob or for `release.live` are historical and are not acceptance.
