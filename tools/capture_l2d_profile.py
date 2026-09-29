@@ -30,7 +30,9 @@ def main() -> int:
              "L2D_DETAIL": args.out / "detail.csv",
              "L2D_CORRECTNESS": args.out / "correctness.csv",
              "L2D_VISUAL_POSE": args.out / "visual_pose.csv",
-             "L2D_VISUAL": args.out / "visual.csv"}
+             "L2D_VISUAL": args.out / "visual.csv",
+             "L2D_ROI": args.out / "roi.csv",
+             "L2D_WORK": args.out / "work.csv"}
     files = {}
     raw = (args.out / "serial.log").open("wb") if args.port else None
     metadata = []

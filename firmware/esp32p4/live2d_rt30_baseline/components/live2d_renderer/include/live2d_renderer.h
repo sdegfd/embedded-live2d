@@ -25,6 +25,11 @@
 extern "C" {
 #endif
 
+typedef struct {
+    int x, y, w, h;
+    bool valid;
+} live2d_roi_t;
+
 /** Live2D 渲染器结构体。管理渲染缓冲区和 ARGB8888 -> RGB565 格式转换。 */
 typedef struct {
     sys_display_buffer_t *buffer;          /**< 显示缓冲区指针（含 ARGB8888 渲染缓冲和 RGB565 帧缓冲） */
@@ -58,6 +63,9 @@ typedef struct {
     int dirty_y;                           /**< 上一帧透明清屏/缓存同步建议区域 Y */
     int dirty_w;                           /**< 上一帧透明清屏/缓存同步建议区域宽度 */
     int dirty_h;                           /**< 上一帧透明清屏/缓存同步建议区域高度 */
+    live2d_roi_t roi_current, roi_previous, roi_union;
+    bool roi_force_full;
+    bool roi_history_ready;
     ppa_client_handle_t ppa_srm_handle;    /**< PPA SRM（缩放/旋转/镜像）硬件句柄 */
     ppa_client_handle_t ppa_fill_handle;   /**< PPA FILL 透明清屏硬件句柄 */
     bool convert_rgb565;                   /**< 是否需要输出 RGB565 帧缓冲（overlay 路径可关闭） */

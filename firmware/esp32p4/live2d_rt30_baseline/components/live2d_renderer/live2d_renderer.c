@@ -15,6 +15,7 @@
 #include "live2d_renderer.h"
 
 #include <string.h>
+#include <math.h>
 
 #include "esp_cache.h"
 #include "esp_log.h"
@@ -22,6 +23,36 @@
 #include "sdkconfig.h"
 
 static const char *TAG = "live2d_renderer";
+
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
+static live2d_roi_t live2d_renderer_geometry_roi(const PX_LiveGeometryBounds *b, int w, int h)
+{
+    live2d_roi_t r = {0};
+    if (!b->valid || b->unsafe || w <= 0 || h <= 0) return r;
+    /* Exclusive right/bottom bounds. Two pixels cover raster edge rounding. */
+    float left = floorf(b->min_x) - 2.f, top = floorf(b->min_y) - 2.f;
+    float right = ceilf(b->max_x) + 3.f, bottom = ceilf(b->max_y) + 3.f;
+    if (right <= 0 || bottom <= 0 || left >= w || top >= h) return r;
+    r.x = left < 0 ? 0 : (int)left;
+    r.y = top < 0 ? 0 : (int)top;
+    int x1 = right > w ? w : (int)right;
+    int y1 = bottom > h ? h : (int)bottom;
+    r.w = x1 - r.x; r.h = y1 - r.y;
+    r.valid = r.w > 0 && r.h > 0;
+    return r;
+}
+
+static live2d_roi_t live2d_renderer_union_roi(live2d_roi_t a, live2d_roi_t b)
+{
+    if (!a.valid) return b;
+    if (!b.valid) return a;
+    int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
+    int ax1 = a.x + a.w, bx1 = b.x + b.w;
+    int ay1 = a.y + a.h, by1 = b.y + b.h;
+    int x1 = ax1 > bx1 ? ax1 : bx1, y1 = ay1 > by1 ? ay1 : by1;
+    return (live2d_roi_t){.x=x0,.y=y0,.w=x1-x0,.h=y1-y0,.valid=true};
+}
+#endif
 
 #define LIVE2D_RENDERER_LOG_PERIOD_FRAMES 120  /**< 渲染帧统计日志输出周期 */
 
@@ -527,6 +558,20 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
     live2d_renderer_clear_dirty_rect(renderer);
     int64_t engine_begin_us = esp_timer_get_time();
     live2d_engine_render(engine, &renderer->render_surface, x, y, PX_ALIGN_LEFTTOP, elapsed_ms);
+
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
+    PX_LiveGeometryBounds geometry;
+    live2d_engine_get_geometry_bounds(engine, &geometry);
+    renderer->roi_previous = renderer->roi_current;
+    renderer->roi_current = live2d_renderer_geometry_roi(&geometry,
+        renderer->buffer->width, renderer->buffer->height);
+    renderer->roi_force_full = !renderer->roi_history_ready || geometry.unsafe;
+    renderer->roi_union = renderer->roi_force_full
+        ? (live2d_roi_t){.x=0,.y=0,.w=renderer->buffer->width,
+                         .h=renderer->buffer->height,.valid=true}
+        : live2d_renderer_union_roi(renderer->roi_previous, renderer->roi_current);
+    renderer->roi_history_ready = true;
+#endif
 
     int64_t convert_begin_us = esp_timer_get_time();
     /* 阶段2：将 ARGB8888 渲染结果转换为显示所需的 RGB565 格式 */

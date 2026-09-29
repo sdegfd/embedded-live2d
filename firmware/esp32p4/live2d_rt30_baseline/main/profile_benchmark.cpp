@@ -35,6 +35,9 @@
 #ifndef CONFIG_L2D_PROFILE_VISUAL
 #define CONFIG_L2D_PROFILE_VISUAL 0
 #endif
+#ifndef CONFIG_L2D_PROFILE_ROI_DIAG
+#define CONFIG_L2D_PROFILE_ROI_DIAG 0
+#endif
 
 static const char *TAG = "l2d_profile";
 static int active_backend;
@@ -169,6 +172,14 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
 #endif
 /* Allocated once in PSRAM, before frame loops; never resized in the hot path. */
 typedef struct {
+    uint32_t current_valid, current_min_x, current_min_y, current_max_x, current_max_y;
+    uint32_t current_w, current_h, current_area;
+    uint32_t previous_valid, previous_min_x, previous_min_y, previous_max_x, previous_max_y;
+    uint32_t union_min_x, union_min_y, union_max_x, union_max_y;
+    uint32_t union_w, union_h, union_area;
+    uint32_t current_area_ratio_q10000, union_area_ratio_q10000, force_full;
+} roi_sample_t;
+typedef struct {
     uint32_t frame_id, round, frame, scenario, scale_q100;
     uint32_t slot_wait_us, controller_us, rt30_us, hierarchy_vertex_us, bounds_us;
     uint32_t clear_us, raster_us, cache_sync_us, producer_total_us;
@@ -180,8 +191,30 @@ typedef struct {
     uint32_t frame_drop, slot_miss, lock_skip, deadline_miss, backend, convert_us;
     uint32_t keypoint_us, visual_transform_us, stretch_us, vertex_transform_us, uv_update_us;
     uint32_t trig_cache_hit, trig_cache_miss;
+    roi_sample_t roi;
 } sample_t;
 static sample_t *ring;
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+static void fill_roi_sample(roi_sample_t *s, const live2d_renderer_t *r) {
+    const live2d_roi_t *c=&r->roi_current,*p=&r->roi_previous,*u=&r->roi_union;
+    uint32_t full=(uint32_t)r->buffer->width*r->buffer->height;
+    s->current_valid=c->valid; s->previous_valid=p->valid;
+    s->current_min_x=c->x; s->current_min_y=c->y;
+    s->current_max_x=c->valid?c->x+c->w-1:0;
+    s->current_max_y=c->valid?c->y+c->h-1:0;
+    s->current_w=c->w; s->current_h=c->h; s->current_area=c->w*c->h;
+    s->previous_min_x=p->x; s->previous_min_y=p->y;
+    s->previous_max_x=p->valid?p->x+p->w-1:0;
+    s->previous_max_y=p->valid?p->y+p->h-1:0;
+    s->union_min_x=u->x; s->union_min_y=u->y;
+    s->union_max_x=u->valid?u->x+u->w-1:0;
+    s->union_max_y=u->valid?u->y+u->h-1:0;
+    s->union_w=u->w; s->union_h=u->h; s->union_area=u->w*u->h;
+    s->current_area_ratio_q10000=full?10000*s->current_area/full:0;
+    s->union_area_ratio_q10000=full?10000*s->union_area/full:0;
+    s->force_full=r->roi_force_full;
+}
+#endif
 static uint32_t next_frame_id;
 enum scenario_t { STATIC, ALL_14_5, ALL_29, EYE_L, EYE_R, NECK, FACE, MOUTH, MULTI, COUNT };
 static const char *const names[] = {"STATIC", "ALL_14_5", "ALL_29", "EYE_L_SWEEP",
@@ -266,6 +299,9 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
                            flush->panel_frame_id != id) ? 1 : 0;
         out->lock_skip = submit_ret == ESP_ERR_TIMEOUT ? 1 : 0;
         out->deadline_miss = end - begin > FRAME_US ? 1 : 0;
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+        fill_roi_sample(&out->roi,renderer);
+#endif
         /* slot wait/miss and blend are 0 because this baseline directly submits
          * one synchronous RGB565 frame; no producer queue or PPA blend exists. */
     }
@@ -300,13 +336,29 @@ static void write_row(FILE *csv, const sample_t *s) {
     const uint32_t *v = (const uint32_t *)s;
     fprintf(csv, "L2D_FRAME,%" PRIu32 ",%s", s->frame_id, names[s->scenario]);
     fprintf(csv, ",%" PRIu32 ",%" PRIu32 ",%" PRIu32, s->scale_q100, s->round, s->frame);
-    for (size_t i = 5; i < sizeof(sample_t)/sizeof(uint32_t); ++i)
+    for (size_t i = 5; i < offsetof(sample_t,roi)/sizeof(uint32_t); ++i)
         fprintf(csv, ",%" PRIu32, v[i]);
     fputc('\n', csv);
 }
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+static void write_roi_row(FILE *out, const sample_t *s) {
+    fprintf(out,"L2D_ROI,%" PRIu32 ",%s,%" PRIu32 ",%" PRIu32 ",%" PRIu32,
+            s->frame_id,names[s->scenario],s->scale_q100,s->round,s->frame);
+    const uint32_t *v=(const uint32_t *)&s->roi;
+    for(size_t i=0;i<sizeof(roi_sample_t)/sizeof(uint32_t);++i) fprintf(out,",%" PRIu32,v[i]);
+    fputc('\n',out);
+}
+#endif
 #if CONFIG_L2D_PROFILE_DETAIL
+typedef struct {
+    uint32_t triangles, scanlines, spans, span_pixels, max_span;
+    uint32_t sample_in, sample_out, full_spans, partial_spans;
+    uint32_t alpha_zero, alpha_opaque, alpha_mixed;
+} work_sample_t;
+static work_sample_t work_ring[MEASURE];
 static void run_detail(live2d_engine_t *engine, live2d_renderer_t *renderer,
-    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles) {
+    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
+    const char *model_sha256, size_t model_size) {
     FILE *out = stdout;
     PX_LiveFrameworkDetailFrame *detail = (PX_LiveFrameworkDetailFrame *)
         heap_caps_calloc(1, sizeof(PX_LiveFrameworkDetailFrame), MALLOC_CAP_SPIRAM);
@@ -319,20 +371,54 @@ static void run_detail(live2d_engine_t *engine, live2d_renderer_t *renderer,
         ESP_LOGE(TAG, "detail allocation failed");
         free(detail); free(overdraw); return;
     }
+    fprintf(out,"L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
+        "profile_mode=raster_work_diagnostic\nscale_q100=100\nwarmup=%d\nmeasure=%d\nrounds=1\n"
+        "note=detail counters invalidate timing benchmarks\nL2D_META_END\n",
+        L2D_ESP_COMMIT,model_sha256,(unsigned)model_size,WARMUP,MEASURE);
     fputs("L2D_DETAIL_HEADER,scenario,scale_q100,layer,triangles,fragments,sampler_calls,"
           "four_tap_alpha_zero,alpha_zero,alpha_opaque,alpha_mixed,"
           "covered_pixels,avg_overdraw,max_overdraw\n", out);
-    for (int scale : {100, 75}) {
+    fputs("L2D_WORK_HEADER,scenario,scale_q100,frame,triangle_count,scanline_count,"
+          "span_count,total_span_pixels,avg_span_length_q100,max_span_length,"
+          "sample_in_bounds,sample_out_of_bounds,fully_inbounds_span_count,"
+          "partial_or_oob_span_count,alpha_zero_pixels,fully_opaque_pixels,alpha_mixed_pixels\n",out);
+    for (int scale : {100}) {
         live2d_engine_set_render_scale(engine, scale / 100.0f);
         for (int scene_num = 0; scene_num < COUNT; ++scene_num) {
             scenario_t scene = (scenario_t)scene_num;
-            if (scene == MOUTH && handles.mouth < 0) continue;
+            if (scene != STATIC && scene != EYE_L && scene != NECK && scene != FACE && scene != MULTI) continue;
             live2d_engine_reset_realtime(engine);
-            for (int i = 0; i < 10; ++i)
+            for (int i = 0; i < WARMUP; ++i)
                 run_frame(engine, renderer, buffer, flush, handles, scene, 0, i, scale, NULL);
-            PX_LiveFrameworkDetailBeginFrame(overdraw, buffer->width, buffer->height);
-            run_frame(engine, renderer, buffer, flush, handles, scene, 0, 10, scale, NULL);
-            PX_LiveFrameworkDetailGetFrame(detail);
+            for (int frame=0;frame<MEASURE;++frame) {
+                PX_LiveFrameworkDetailBeginFrame(overdraw, buffer->width, buffer->height);
+                run_frame(engine, renderer, buffer, flush, handles, scene, 0, frame+WARMUP, scale, NULL);
+                PX_LiveFrameworkDetailGetFrame(detail);
+                work_sample_t *w=&work_ring[frame];
+                *w={};
+                for (uint32_t layer=0;layer<detail->layerCount;++layer) {
+                    const PX_LiveFrameworkLayerWork *l=&detail->layers[layer];
+                    w->triangles+=l->triangles;
+                    w->alpha_zero+=l->alphaZero;
+                    w->alpha_opaque+=l->alphaOpaque;
+                    w->alpha_mixed+=l->alphaMixed;
+                }
+                w->scanlines=detail->scanlines; w->spans=detail->spans;
+                w->span_pixels=detail->spanPixels; w->max_span=detail->maxSpanLength;
+                w->sample_in=detail->sampleInBounds; w->sample_out=detail->sampleOutOfBounds;
+                w->full_spans=detail->fullyInBoundsSpans;
+                w->partial_spans=detail->partialOrOobSpans;
+            }
+            for (int frame=0;frame<MEASURE;++frame) {
+                const work_sample_t *w=&work_ring[frame];
+                fprintf(out,"L2D_WORK,%s,%d,%d,%" PRIu32 ",%" PRIu32 ",%" PRIu32
+                    ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32
+                    ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 "\n",
+                    names[scene],scale,frame+WARMUP,w->triangles,w->scanlines,w->spans,
+                    w->span_pixels,w->spans?100*w->span_pixels/w->spans:0,w->max_span,
+                    w->sample_in,w->sample_out,w->full_spans,w->partial_spans,
+                    w->alpha_zero,w->alpha_opaque,w->alpha_mixed);
+            }
             double avg_overdraw = detail->coveredPixels
                 ? (double)detail->fragmentOverdrawSum / detail->coveredPixels : 0;
             for (uint32_t layer = 0; layer < detail->layerCount; ++layer) {
@@ -454,8 +540,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
     run_visual(engine, renderer, buffer, flush, handles, load_us, model_sha256, model_size);
     return;
 #elif CONFIG_L2D_PROFILE_DETAIL
-    (void)load_us; (void)model_sha256; (void)model_size;
-    run_detail(engine, renderer, buffer, flush, handles);
+    (void)load_us;
+    run_detail(engine, renderer, buffer, flush, handles, model_sha256, model_size);
     return;
 #elif !CONFIG_L2D_PROFILE_TIMING
     (void)engine; (void)renderer; (void)buffer; (void)flush; (void)handles;
@@ -489,7 +575,8 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         (long long)load_us, info.layer_count, geo.vertices, geo.triangles,
         info.texture_count, geo.texture_pixels,
         live2d_engine_get_realtime_axis_count(engine), CONFIG_L2D_PROFILE_STAGE,
-        CONFIG_L2D_PROFILE_FINE ? "fine_diagnostic" : "timing",
+        CONFIG_L2D_PROFILE_ROI_DIAG ? "roi_diagnostic" :
+            (CONFIG_L2D_PROFILE_FINE ? "fine_diagnostic" : "timing"),
         CONFIG_L2D_CLEAR_CPU ? "CPU" : "PPA",
         CONFIG_L2D_CONVERT_CPU ? "CPU" : "PPA",
         WARMUP, MEASURE, ROUNDS);
@@ -503,6 +590,13 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "keypoint_us,visual_transform_us,stretch_us,vertex_transform_us,uv_update_us,"
           "trig_cache_hit,trig_cache_miss\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+    fputs("L2D_ROI_HEADER,frame_id,scenario,scale_q100,round,frame,current_valid,"
+          "current_min_x,current_min_y,current_max_x,current_max_y,current_w,current_h,current_area,"
+          "previous_valid,previous_min_x,previous_min_y,previous_max_x,previous_max_y,"
+          "union_min_x,union_min_y,union_max_x,union_max_y,union_w,union_h,union_area,"
+          "current_area_ratio_q10000,union_area_ratio_q10000,force_full\n",csv);
+#endif
     fprintf(summary, "L2D_SUMMARY,LOAD,0,0,load_us,1,%lld,%lld,%lld,%lld,%lld,%lld,0\n",
             (long long)load_us, (long long)load_us, (long long)load_us,
             (long long)load_us, (long long)load_us, (long long)load_us);
@@ -533,6 +627,9 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                               i+WARMUP, scale, &ring[i]);
                 }
                 for (int i = 0; i < MEASURE; ++i) write_row(csv, &ring[i]);
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+                for (int i = 0; i < MEASURE; ++i) write_roi_row(csv, &ring[i]);
+#endif
                 fflush(csv);
                 SUM(slot_wait_us); SUM(controller_us); SUM(rt30_us); SUM(hierarchy_vertex_us);
                 SUM(bounds_us); SUM(clear_us); SUM(raster_us); SUM(convert_us); SUM(cache_sync_us);
@@ -545,6 +642,11 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 SUM(vertex_transform_us); SUM(uv_update_us);
                 SUM(trig_cache_hit); SUM(trig_cache_miss);
                 SUM(slot_miss); SUM(lock_skip); SUM(deadline_miss);
+#if CONFIG_L2D_PROFILE_ROI_DIAG
+                SUM(roi.current_area); SUM(roi.union_area);
+                SUM(roi.current_area_ratio_q10000); SUM(roi.union_area_ratio_q10000);
+                SUM(roi.current_w); SUM(roi.current_h); SUM(roi.union_w); SUM(roi.union_h);
+#endif
                 fflush(summary);
                 ESP_LOGI(TAG, "done %s scale=%d round=%d", names[scene], scale, round);
             }

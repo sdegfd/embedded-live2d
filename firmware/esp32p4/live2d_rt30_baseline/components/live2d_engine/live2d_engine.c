@@ -458,6 +458,12 @@ void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
     if (engine && engine->loaded) *out_profile = engine->live.frameProfile;
 }
 
+void live2d_engine_get_geometry_bounds(const live2d_engine_t *engine,
+                                       PX_LiveGeometryBounds *out)
+{
+    PX_LiveFrameworkGetGeometryBounds(engine && engine->loaded ? &engine->live : NULL, out);
+}
+
 void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
                                   uint32_t *hit, uint32_t *miss)
 {

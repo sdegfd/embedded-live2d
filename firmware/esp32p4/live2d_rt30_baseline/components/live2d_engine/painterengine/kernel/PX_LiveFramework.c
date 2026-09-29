@@ -16,6 +16,8 @@
 #include "PX_LiveDeviceFormat.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 /* ── 性能分析模块 ──────────────────────────────── */
@@ -57,9 +59,52 @@ static px_void PX_LiveFrameworkDetailFragment(px_int x,px_int y,px_int alpha,px_
 }
 #define DETAIL_TRIANGLE() do { if (s_detailLayer>=0&&s_detailLayer<PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER) s_detail.layers[s_detailLayer].triangles++; } while(0)
 #define DETAIL_FRAGMENT(x,y,a,z) PX_LiveFrameworkDetailFragment((x),(y),(a),(z))
+static px_void PX_LiveFrameworkDetailSpan(px_int length, px_int s, px_int t,
+                                          px_int ds, px_int dt, px_int width, px_int height)
+{
+    int64_t s_end=(int64_t)s+(int64_t)ds*(length-1);
+    int64_t t_end=(int64_t)t+(int64_t)dt*(length-1);
+    int64_t s_lo=s<s_end?s:s_end, s_hi=s>s_end?s:s_end;
+    int64_t t_lo=t<t_end?t:t_end, t_hi=t>t_end?t:t_end;
+    s_detail.spans++;
+    s_detail.spanPixels+=(px_uint32)length;
+    if ((px_uint32)length>s_detail.maxSpanLength) s_detail.maxSpanLength=(px_uint32)length;
+    if (s_lo>=0 && t_lo>=0 && s_hi<((int64_t)width<<16) &&
+        t_hi<((int64_t)height<<16) && s_hi<=INT32_MAX && t_hi<=INT32_MAX)
+        s_detail.fullyInBoundsSpans++;
+    else s_detail.partialOrOobSpans++;
+}
+#define DETAIL_SCANLINE() (s_detail.scanlines++)
+#define DETAIL_SPAN(n,s,t,ds,dt,w,h) PX_LiveFrameworkDetailSpan((n),(s),(t),(ds),(dt),(w),(h))
+#define DETAIL_SAMPLE_IN() (s_detail.sampleInBounds++)
+#define DETAIL_SAMPLE_OUT() (s_detail.sampleOutOfBounds++)
 #else
 #define DETAIL_TRIANGLE() ((void)0)
 #define DETAIL_FRAGMENT(x,y,a,z) ((void)0)
+#define DETAIL_SCANLINE() ((void)0)
+#define DETAIL_SPAN(n,s,t,ds,dt,w,h) ((void)0)
+#define DETAIL_SAMPLE_IN() ((void)0)
+#define DETAIL_SAMPLE_OUT() ((void)0)
+#endif
+px_void PX_LiveFrameworkGetGeometryBounds(const PX_LiveFramework *plive,
+                                          PX_LiveGeometryBounds *out)
+{
+    if (out) *out=plive?plive->geometryBounds:(PX_LiveGeometryBounds){0};
+}
+
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
+static px_void PX_LiveFrameworkBoundsVertex(PX_LiveGeometryBounds *b, px_float x, px_float y)
+{
+    if (!isfinite(x)||!isfinite(y)) { b->unsafe=PX_TRUE; return; }
+    if (!b->valid) {
+        b->min_x=b->max_x=x; b->min_y=b->max_y=y; b->valid=PX_TRUE;
+    } else {
+        if (x<b->min_x) b->min_x=x;
+        if (x>b->max_x) b->max_x=x;
+        if (y<b->min_y) b->min_y=y;
+        if (y>b->max_y) b->max_y=y;
+    }
+}
 #endif
 px_void PX_LiveFrameworkDetailBeginFrame(px_uchar *overdraw,px_int width,px_int height)
 {
@@ -411,6 +456,7 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 	{
 		return;
 	}
+	DETAIL_SCANLINE();
 
 	/* 退化情况检查：退化三角形或零宽度扫描线 */
 	if (xright == xleft ||
@@ -485,6 +531,7 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 		t_fp = (px_int)(t * texture_height * 65536.0f);
 		s_fp_step = (px_int)(s_step * texture_width * 65536.0f);
 		t_fp_step = (px_int)(t_step * texture_height * 65536.0f);
+		DETAIL_SPAN(xend-xstart,s_fp,t_fp,s_fp_step,t_fp_step,texture_width,texture_height);
 
 		/* 无混合：直接覆盖或 Alpha 预乘 */
 		if (!blend)
@@ -496,10 +543,12 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 				if ((px_uint)tx >= (px_uint)texture_width ||
 					(px_uint)ty >= (px_uint)texture_height)
 				{
+					DETAIL_SAMPLE_OUT();
 					s_fp += s_fp_step;
 					t_fp += t_fp_step;
 					continue;
 				}
+				DETAIL_SAMPLE_IN();
 				color = PX_SURFACECOLOR(ptexture, tx, ty);
 				DETAIL_FRAGMENT(ix,iy,color._argb.a,PX_FALSE);
 
@@ -532,10 +581,12 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 			if ((px_uint)tx >= (px_uint)texture_width ||
 				(px_uint)ty >= (px_uint)texture_height)
 			{
+				DETAIL_SAMPLE_OUT();
 				s_fp += s_fp_step;
 				t_fp += t_fp_step;
 				continue;
 			}
+			DETAIL_SAMPLE_IN();
 			color = PX_SURFACECOLOR(ptexture, tx, ty);
 
 			{
@@ -2104,6 +2155,11 @@ static px_void PX_LiveFrameworkRenderLayer(px_surface *psurface,PX_LiveFramework
 				v2.normal=pv2->normal;
 				v2.u=pv2->u;
 				v2.v=pv2->v;
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
+				PX_LiveFrameworkBoundsVertex(&plive->geometryBounds,v0.position.x,v0.position.y);
+				PX_LiveFrameworkBoundsVertex(&plive->geometryBounds,v1.position.x,v1.position.y);
+				PX_LiveFrameworkBoundsVertex(&plive->geometryBounds,v2.position.x,v2.position.y);
+#endif
 
 				if (plive->currentEditLayerIndex>=0&&plive->currentEditLayerIndex<plive->layers.size)
 				{
@@ -2301,6 +2357,7 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 /** 渲染当前状态：对齐、排序、绘制所有图层，并输出调试信息 */
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_int x,px_int y,PX_ALIGN refPoint)
 {
+	PX_memset(&plive->geometryBounds,0,sizeof(plive->geometryBounds));
 	PX_QuickSortAtom sAtom[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
 	px_int i,count;
 	long long layer_begin_us, sort_end_us, draw_end_us;

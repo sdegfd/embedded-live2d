@@ -52,6 +52,13 @@ config L2D_PROFILE_DETAIL
     help
         Adds per-fragment counters. These runs are not timing benchmarks.
 
+config L2D_PROFILE_ROI_DIAG
+    bool "Collect geometry ROI diagnostics without changing conversion"
+    default n
+    help
+        Adds screen-space triangle bounds and previous/current union counters.
+        This build is diagnostic only and is not a formal timing benchmark.
+
 config L2D_PROFILE_OVERDRAW
     bool "Collect uint8 overdraw map"
     depends on L2D_PROFILE_DETAIL

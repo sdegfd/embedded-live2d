@@ -136,6 +136,8 @@ void live2d_engine_render(live2d_engine_t *engine, px_surface *surface, int x, i
 /** 读取最近一次 render 的内核阶段耗时；未加载模型时返回全零。 */
 void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
                                      live2d_engine_frame_profile_t *out_profile);
+void live2d_engine_get_geometry_bounds(const live2d_engine_t *engine,
+                                       PX_LiveGeometryBounds *out);
 void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
                                   uint32_t *hit, uint32_t *miss);
 

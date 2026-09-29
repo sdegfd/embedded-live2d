@@ -234,15 +234,25 @@ typedef struct {
     PX_LiveFrameworkLayerWork layers[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
     px_uint32 layerCount, coveredPixels, maxOverdraw;
     px_uint64 fragmentOverdrawSum;
+    px_uint32 scanlines, spans, spanPixels, maxSpanLength;
+    px_uint32 sampleInBounds, sampleOutOfBounds;
+    px_uint32 fullyInBoundsSpans, partialOrOobSpans;
 } PX_LiveFrameworkDetailFrame;
+/* Screen-space bounds from the exact vertices submitted to rasterization. */
+typedef struct {
+    px_float min_x, min_y, max_x, max_y;
+    px_bool valid, unsafe;
+} PX_LiveGeometryBounds;
+typedef struct _PX_LiveFramework PX_LiveFramework;
 #ifdef __cplusplus
 extern "C" {
 #endif
 px_void PX_LiveFrameworkDetailBeginFrame(px_uchar *overdraw, px_int width, px_int height);
 px_void PX_LiveFrameworkDetailGetFrame(PX_LiveFrameworkDetailFrame *out);
+px_void PX_LiveFrameworkGetGeometryBounds(const PX_LiveFramework *plive,
+                                          PX_LiveGeometryBounds *out);
 
 #if CONFIG_L2D_PROFILE_VISUAL
-typedef struct _PX_LiveFramework PX_LiveFramework;
 typedef struct {
 	px_dword physical_ran;
 	px_dword history_valid;
@@ -336,6 +346,7 @@ typedef struct _PX_LiveFramework
 	px_float renderScale;                    /**< 渲染缩放比例 */
 	PX_LiveRealtime realtime;                /**< RT30 实时多轴求值器 */
 	PX_LiveFrameworkFrameProfile frameProfile; /**< Last frame phase timings */
+	PX_LiveGeometryBounds geometryBounds;      /**< Last raster frame geometry bounds */
 	px_uint32 meshPoseRevision;             /**< Revision already applied to vertices */
 
 	/* ── 动画虚拟机 ───────────────────────── */

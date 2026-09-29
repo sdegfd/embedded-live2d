@@ -1,0 +1,9 @@
+esp_commit=cb7ea886eb4a67f36232fbc9924645c2db1e2ff0
+model_sha256=1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100
+model_size=800796
+profile_mode=raster_work_diagnostic
+scale_q100=100
+warmup=5
+measure=50
+rounds=1
+note=detail counters invalidate timing benchmarks
