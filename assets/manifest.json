@@ -1,0 +1,101 @@
+{
+  "format": "l2d-asset-manifest-v1",
+  "note": "Identities recorded on 2026-09-29 from git blob, worktree hash, host load, and the ESP32-P4 boot log. The five-axis file is a local replacement and is not a git blob.",
+  "assets": [
+    {
+      "id": "esp-4axis",
+      "role": "phase0-2.5 golden model",
+      "acquisition": "git blob 4174304b8374697b7dd8cfab034d5398f5243306, which is project/esp.live at adbc38aa. Host CMake extracts it with git cat-file. Do not read the dirty worktree project/esp.live for this id.",
+      "sha256": "786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b",
+      "size_bytes": 798660,
+      "format": "PainterEngineLiveDBinary v1 plus RT30 trailer v1",
+      "model_id": "esp",
+      "width": 320,
+      "height": 320,
+      "layers": 11,
+      "vertices": 227,
+      "triangles": 257,
+      "textures": 12,
+      "texture_pixels": 184235,
+      "animations": 1,
+      "axes": 4,
+      "axis_ids": ["left_eye", "right_eye", "neck", "face"],
+      "source": "Project model stored in git. Treat as project content, not a newly published third-party asset.",
+      "golden": ["host-embedded-nearest-4axis", "phase25-device-4axis"]
+    },
+    {
+      "id": "esp-5axis",
+      "role": "phase3A/3B on-device model",
+      "acquisition": "Local file project/esp.live and the board file /sdcard/esp.live. Both hashed to the same SHA256 on 2026-09-29. Not committed. Do not overwrite it to match the four-axis git blob.",
+      "sha256": "1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100",
+      "size_bytes": 800796,
+      "format": "PainterEngineLiveDBinary v1 plus RT30 trailer v1",
+      "model_id": "esp",
+      "width": 320,
+      "height": 320,
+      "layers": 11,
+      "vertices": 227,
+      "triangles": 257,
+      "textures": 12,
+      "texture_pixels": 184235,
+      "animations": 1,
+      "axes": 5,
+      "axis_ids": ["left_eye", "right_eye", "neck", "face", "mouth"],
+      "source": "User-local replacement used by Phase 3B. Private to this workspace until the owner publishes it.",
+      "golden": ["phase31-device-5axis-roi"]
+    },
+    {
+      "id": "release-live",
+      "role": "committed timeline model, no RT30 trailer",
+      "acquisition": "project/release.live in git",
+      "sha256": "5cfd67979fb365cc9edbca7b955aac391ebb39bca062fa855e4209faa02498b1",
+      "size_bytes": 3747332,
+      "format": "PainterEngineLiveDBinary v1, no RT30 trailer located",
+      "model_id": "",
+      "width": 320,
+      "height": 320,
+      "layers": 34,
+      "vertices": 160,
+      "triangles": 120,
+      "textures": 54,
+      "texture_pixels": 179453,
+      "animations": 32,
+      "axes": 0,
+      "source": "Existing repository file. Host load succeeded. Not the Phase 3B performance model.",
+      "golden": []
+    }
+  ],
+  "goldens": [
+    {
+      "id": "host-embedded-nearest-4axis",
+      "model": "esp-4axis",
+      "profile": "EMBEDDED_COMPAT_NEAREST",
+      "where": "host gcc 13.3.0 -O2 -fno-strict-aliasing -ffp-contract=off, tight BGRA, zlib crc32, elapsed 33, origin 0,0",
+      "results": {
+        "STATIC": "6793bec7",
+        "ALL_14_5": "d522cbf1",
+        "ALL_29": "1033faa1",
+        "NECK_15": "6793bec7",
+        "trig_hit": 29,
+        "trig_miss": 22
+      }
+    },
+    {
+      "id": "phase25-device-4axis",
+      "model": "esp-4axis",
+      "where": "historical ESP32-P4 capture, not re-run this round",
+      "note": "Device STATIC and NECK_15 ARGB CRC eae4bd6c. Host STATIC is 6793bec7. ALL_14_5 d522cbf1 and ALL_29 1033faa1 matched the host oracle and the historical device rows. This refactor did not change math to close the STATIC gap.",
+      "results": {
+        "STATIC_argb": "eae4bd6c",
+        "ALL_14_5_argb": "d522cbf1",
+        "ALL_29_argb": "1033faa1"
+      }
+    },
+    {
+      "id": "phase31-device-5axis-roi",
+      "model": "esp-5axis",
+      "where": "doc/optimization/phase31_correctness_roi and phase31_srm_roi",
+      "note": "459 correctness rows. Stage-1 MULTI_AXIS short-test frame average 27332.66 us. This round re-measured stage 0 on the same model SHA. See docs/refactor/benchmark-regression.md."
+    }
+  ]
+}

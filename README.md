@@ -1,6 +1,18 @@
 # Live2D / PainterEngine 跨平台工作区
 
-本仓库同时保存 PC 引擎、Windows 编辑器、ESP32-P4 独立渲染例程和实测报告。后续优化以此目录结构推进：
+共享嵌入式运行时在仓库根的 `include/l2d/`、`src/`、`ports/`。Host、ESP32-P4 和 ESP32-S3 引用这一份源码。Windows 编辑器仍链接根目录 `PainterEngine/`，本轮没有改编辑器源码。架构、裁剪和实测见 `docs/refactor/HANDOFF_EMBEDDED_RUNTIME.md`。
+
+Host 测试（已在本机跑通）：
+
+```bash
+cmake -S . -B build/host
+cmake --build build/host --target l2d_test_runtime
+./build/host/l2d_test_runtime
+```
+
+ESP32-P4 例程仍在 `firmware/esp32p4/live2d_rt30_baseline/`，通过组件引用上述源码，不再自带一份 `painterengine/`。ESP32-S3 只有 `examples/esp32s3/` 的 headless 构建入口，本环境没有 S3 板。
+
+本仓库同时保存 PC 引擎、Windows 编辑器、ESP32-P4 渲染例程和实测报告：
 
 | 目录 | 用途 |
 | --- | --- |
