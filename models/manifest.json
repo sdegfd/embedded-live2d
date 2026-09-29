@@ -1,0 +1,26 @@
+{
+  "format": "embedded-live2d-model-manifest-v1",
+  "formal_model": {
+    "path": "models/esp.live",
+    "device_path": "/sdcard/esp.live",
+    "sha256": "1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100",
+    "size_bytes": 800796,
+    "canvas": [
+      320,
+      320
+    ],
+    "layers": 11,
+    "vertices": 227,
+    "triangles": 257,
+    "textures": 12,
+    "animations": 1,
+    "axes": [
+      "left_eye",
+      "right_eye",
+      "neck",
+      "face",
+      "mouth"
+    ]
+  },
+  "historical_results": "docs/optimization/ and docs/history/refactor/"
+}

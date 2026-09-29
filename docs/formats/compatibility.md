@@ -6,7 +6,7 @@ Playback reads the existing PainterEngine `.live` file. This round does not defi
 
 | Bytes | Support |
 | --- | --- |
-| `PainterEngineLiveDBinary` header, version 1, layers, textures, vertices, triangles, animations | Loaded by `PX_LiveFrameworkImport`. The only formal model is the five-axis `project/esp.live` (device path `/sdcard/esp.live`). |
+| `PainterEngineLiveDBinary` header, version 1, layers, textures, vertices, triangles, animations | Loaded by `PX_LiveFrameworkImport`. The only formal model is the five-axis `models/esp.live` (device path `/sdcard/esp.live`). |
 | RT30 trailer, magic `RT30`, version 1 | Parsed when the remaining tail matches the trailer checks. The formal model reports 5 axes. |
 | PXR3 chunks (`PXR3`, `BASE`, `TEX`, `RT30`, `LAYO`) in `PX_LiveDeviceFormat` | Reader helpers are linked because the RT30 trailer validator calls them. A full PXR3 asset pipeline is not a playback entry. Calling a validator does not mean an arbitrary PXR3 file becomes a running instance. |
 
@@ -30,7 +30,7 @@ Changing `sizeof(PX_LiveLayer)` or adding a field to `PX_LiveVertex` would desyn
 - A short or inconsistent RT30 trailer fails. A tail that is not RT30 is ignored.
 - A vector slot is published only after its allocation exists, so a failed import can free what it created.
 
-A truncated buffer fails the host test. Formal CRC is measured on the five-axis `project/esp.live` only. See `docs/refactor/MODEL_BASELINE.md`.
+A truncated buffer fails the host test. Formal CRC is measured on the five-axis `models/esp.live` only. See `docs/formats/model-baseline.md`.
 
 A failed import frees only the framework it was filling. Loading again into an engine that already holds a model leaves that model in place.
 
@@ -38,4 +38,4 @@ A failed import frees only the framework it was filling. Loading again into an e
 
 The file format does not encode an ESP32-P4 or ESP32-S3 memory ceiling. The caller passes `pool_bytes`. The 16 MiB P4 pool and the 64 KiB S3 smoke pool are application choices.
 
-Formal memory numbers come from the five-axis `project/esp.live` host run and are recorded in `docs/refactor/MODEL_BASELINE.md`. Older pool notes for a four-axis git blob or for `release.live` are historical and are not acceptance.
+Formal memory numbers come from the five-axis `models/esp.live` host run and are recorded in `docs/formats/model-baseline.md`. Older pool notes for a four-axis git blob or for `release.live` are historical and are not acceptance.
