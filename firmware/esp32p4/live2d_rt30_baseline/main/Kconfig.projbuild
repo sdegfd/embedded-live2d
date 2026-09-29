@@ -38,6 +38,14 @@ config L2D_PROFILE_FINE
         Adds timer calls inside the vertex loop. Its timings are diagnostic
         workload attribution, not formal benchmark results.
 
+config L2D_PROFILE_VISUAL
+    bool "Count visual-transform calls and reuse (diagnostic only)"
+    default n
+    help
+        Counts visual-transform, rotation, and trigonometric calls and
+        records parent-chain reuse. This build is not a timing benchmark.
+        Leave it off for formal Stage 0/1/2 measurements.
+
 config L2D_PROFILE_DETAIL
     bool "Collect raster workload counters (separate diagnostic build)"
     default n

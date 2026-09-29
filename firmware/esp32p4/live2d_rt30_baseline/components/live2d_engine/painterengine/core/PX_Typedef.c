@@ -753,11 +753,114 @@ px_double PX_ReLU(px_double x)
 	return x<=0?0:x;
 }
 
+#if CONFIG_L2D_PROFILE_VISUAL
+static struct {
+	int active;
+	int scope;
+	int stack[8];
+	int sp;
+	PX_VisualDiagTrig trig;
+	px_dword angles[1024];
+	int angle_n;
+	int angle_overflow;
+} s_visual_diag;
+
+static int PX_VisualDiagScope(void)
+{
+	int scope=s_visual_diag.scope;
+	if (scope<0||scope>=PX_VISUAL_SCOPE_COUNT) return PX_VISUAL_SCOPE_OTHER;
+	return scope;
+}
+
+static void PX_VisualDiagCountSin(void)
+{
+	if (s_visual_diag.active) s_visual_diag.trig.sin_angle[PX_VisualDiagScope()]++;
+}
+
+static void PX_VisualDiagCountCos(void)
+{
+	if (s_visual_diag.active) s_visual_diag.trig.cos_angle[PX_VisualDiagScope()]++;
+}
+
+static void PX_VisualDiagCountSind(void)
+{
+	if (s_visual_diag.active) s_visual_diag.trig.sind[PX_VisualDiagScope()]++;
+}
+
+static void PX_VisualDiagNotePointRotate(px_float angle)
+{
+	union { px_float f; px_dword u; } bits;
+	if (!s_visual_diag.active) return;
+	s_visual_diag.trig.point_rotate[PX_VisualDiagScope()]++;
+	bits.f=angle;
+	if (s_visual_diag.angle_n<(int)(sizeof(s_visual_diag.angles)/sizeof(s_visual_diag.angles[0])))
+	{
+		s_visual_diag.angles[s_visual_diag.angle_n++]=bits.u;
+	}
+	else
+	{
+		s_visual_diag.angle_overflow=1;
+	}
+}
+
+static int PX_VisualDiagUniqueAngles(void)
+{
+	int i,j,unique=0;
+	for (i=0;i<s_visual_diag.angle_n;i++)
+	{
+		for (j=0;j<i;j++)
+		{
+			if (s_visual_diag.angles[j]==s_visual_diag.angles[i]) break;
+		}
+		if (j==i) unique++;
+	}
+	return unique;
+}
+
+void PX_VisualDiagBegin(void)
+{
+	memset(&s_visual_diag,0,sizeof(s_visual_diag));
+	s_visual_diag.active=1;
+}
+
+void PX_VisualDiagEnd(void)
+{
+	s_visual_diag.active=0;
+}
+
+void PX_VisualDiagPush(int scope)
+{
+	if (s_visual_diag.sp<(int)(sizeof(s_visual_diag.stack)/sizeof(s_visual_diag.stack[0])))
+	{
+		s_visual_diag.stack[s_visual_diag.sp++]=s_visual_diag.scope;
+	}
+	s_visual_diag.scope=scope;
+}
+
+void PX_VisualDiagPop(void)
+{
+	if (s_visual_diag.sp>0) s_visual_diag.scope=s_visual_diag.stack[--s_visual_diag.sp];
+	else s_visual_diag.scope=PX_VISUAL_SCOPE_OTHER;
+}
+
+void PX_VisualDiagRead(PX_VisualDiagTrig *out)
+{
+	if (!out) return;
+	*out=s_visual_diag.trig;
+	out->unique_point_rotate_angles=(px_dword)PX_VisualDiagUniqueAngles();
+	out->point_rotate_angle_samples=(px_dword)s_visual_diag.angle_n;
+	out->point_rotate_angle_overflow=s_visual_diag.angle_overflow?1u:0u;
+}
+#endif
+
 px_double PX_sind(px_double x)
 {
 	px_double it;
 	px_double term;
 	px_double result;
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagCountSind();
+#endif
 
 	it=x/(2*PX_PI);
 	x=x-(2*PX_PI)*PX_TRUNC(it);
@@ -837,11 +940,17 @@ px_float PX_tan_radian(px_float radian)
 
 px_float PX_sin_angle(px_float angle)
 {
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagCountSin();
+#endif
 	angle-=((px_int)angle/360)*360;
 	return (px_float)PX_sin_radian((angle*0.0174532925f));
 }
 px_float PX_cos_angle(px_float angle)
 {
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagCountCos();
+#endif
 	angle-=((px_int)angle/360)*360;
 	return PX_cos_radian((angle*0.0174532925f));
 }
@@ -5563,6 +5672,9 @@ px_uint32 PX_sum32(px_void *buffer, px_uint size)
 
 px_point PX_PointRotate(px_point p,px_float angle)
 {
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagNotePointRotate(angle);
+#endif
 	px_matrix mat;
 	PX_MatrixRotateZ(&mat,angle);
 	return PX_PointMulMatrix(p,mat);

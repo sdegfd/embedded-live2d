@@ -8,6 +8,12 @@
 #ifndef __PX_TYPEDEF_H
 #define __PX_TYPEDEF_H
 
+#if defined(__has_include)
+#if __has_include("sdkconfig.h")
+#include "sdkconfig.h"
+#endif
+#endif
+
 #include	"PX_MathTable.h"
 
 #define PX_COLOR_FORMAT_BGRA
@@ -565,6 +571,28 @@ px_float PX_cos_radian(px_float radian);
 px_float PX_tan_radian(px_float radian);
 px_float PX_sin_angle(px_float angle);
 px_float PX_cos_angle(px_float angle);
+
+#if CONFIG_L2D_PROFILE_VISUAL
+#define PX_VISUAL_SCOPE_OTHER 0
+#define PX_VISUAL_SCOPE_TRANSFORM 1
+#define PX_VISUAL_SCOPE_FINAL 2
+#define PX_VISUAL_SCOPE_SET 3
+#define PX_VISUAL_SCOPE_COUNT 4
+typedef struct {
+	px_dword sin_angle[PX_VISUAL_SCOPE_COUNT];
+	px_dword cos_angle[PX_VISUAL_SCOPE_COUNT];
+	px_dword sind[PX_VISUAL_SCOPE_COUNT];
+	px_dword point_rotate[PX_VISUAL_SCOPE_COUNT];
+	px_dword unique_point_rotate_angles;
+	px_dword point_rotate_angle_samples;
+	px_dword point_rotate_angle_overflow;
+} PX_VisualDiagTrig;
+void PX_VisualDiagBegin(void);
+void PX_VisualDiagEnd(void);
+void PX_VisualDiagPush(int scope);
+void PX_VisualDiagPop(void);
+void PX_VisualDiagRead(PX_VisualDiagTrig *out);
+#endif
 px_float PX_tan_angle(px_float angle);
 px_double PX_atan(px_double x);
 px_double PX_atan2(px_double y, px_double x);

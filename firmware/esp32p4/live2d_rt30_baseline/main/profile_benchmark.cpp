@@ -32,6 +32,9 @@
 #ifndef CONFIG_L2D_PROFILE_FINE
 #define CONFIG_L2D_PROFILE_FINE 0
 #endif
+#ifndef CONFIG_L2D_PROFILE_VISUAL
+#define CONFIG_L2D_PROFILE_VISUAL 0
+#endif
 
 static const char *TAG = "l2d_profile";
 static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
@@ -295,12 +298,98 @@ static void run_detail(live2d_engine_t *engine, live2d_renderer_t *renderer,
 }
 #endif
 
+#if CONFIG_L2D_PROFILE_VISUAL
+static void print_visual_id(const char *id) {
+    for (int i = 0; id && id[i] && i < PX_LIVE_ID_MAX_LEN; ++i) {
+        unsigned char c = (unsigned char)id[i];
+        if (c < 32 || c == ',' || c == '"') c = '_';
+        putchar(c);
+    }
+}
+static_assert(sizeof(PX_LiveVisualDiagFrame) == 34 * sizeof(px_dword),
+              "L2D_VISUAL_HEADER must match PX_LiveVisualDiagFrame");
+static void print_visual_row(scenario_t scene, int frame, const PX_LiveVisualDiagFrame *d) {
+    const px_dword *v = &d->physical_ran;
+    const int fields = (int)(sizeof(PX_LiveVisualDiagFrame) / sizeof(px_dword));
+    printf("L2D_VISUAL,%s,%d,%d", names[scene], frame < WARMUP ? 1 : 0, frame);
+    for (int i = 0; i < fields; ++i) printf(",%" PRIu32, (uint32_t)v[i]);
+    putchar('\n');
+}
+static void run_visual(live2d_engine_t *engine, live2d_renderer_t *renderer,
+    sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
+    int64_t load_us, const char *model_sha256, size_t model_size) {
+    PX_LiveVisualDiagLayer *topo = (PX_LiveVisualDiagLayer *)heap_caps_calloc(
+        PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER, sizeof(PX_LiveVisualDiagLayer), MALLOC_CAP_SPIRAM);
+    if (!topo) {
+        ESP_LOGE(TAG, "visual diagnostic allocation failed");
+        return;
+    }
+    printf("L2D_META_BEGIN\nesp_commit=%s\nlive2d_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
+           "model_load_us=%lld\nmode=visual_diagnostic\nprofile_visual=1\n"
+           "scale_q100=100\nwarmup=%d\nmeasure=%d\nrounds=%d\n"
+           "note=section_times_include_timer_reads_and_are_not_formal_benchmarks\n"
+           "L2D_META_END\n",
+           L2D_ESP_COMMIT, L2D_PC_COMMIT, model_sha256, (unsigned)model_size,
+           (long long)load_us, WARMUP, MEASURE, ROUNDS);
+    fputs("L2D_VISUAL_HEADER,scenario,warmup,frame,physical_ran,history_valid,layers,"
+          "get_visual_calls,point_rotate_calls,sin_angle_calls,cos_angle_calls,sind_calls,"
+          "sind_transform,sind_final,sind_set_rotation,sind_other,unique_rotation_angles,"
+          "unique_local_rotation_angles,unique_point_rotate_angles,point_rotate_angle_samples,"
+          "point_rotate_angle_overflow,ancestor_visits,unique_ancestors,depth_sum,max_depth,"
+          "rotation_changed,local_rotation_changed,scale_changed,local_translation_changed,"
+          "hierarchy_translation_changed,keypoint_changed,parent_visual_changed,traverse_us,"
+          "local_translation_rotate_us,relative_rotate_us,final_sincos_us,diag_pose_us,"
+          "diag_physical_us\n", stdout);
+    fputs("L2D_VISUAL_POSE_HEADER,scenario,index,parent,depth,children,rotation_bits,"
+          "local_rotation_bits,scale_bits,local_tx_bits,local_ty_bits,key_x_bits,key_y_bits,id\n",
+          stdout);
+    live2d_engine_set_render_scale(engine, 1.0f);
+    for (int scene_num = 0; scene_num < COUNT; ++scene_num) {
+        scenario_t scene = (scenario_t)scene_num;
+        if (scene != STATIC && scene != EYE_L && scene != NECK && scene != FACE && scene != MULTI)
+            continue;
+        if (scene == MOUTH && handles.mouth < 0) continue;
+        live2d_engine_reset_realtime(engine);
+        for (int frame = 0; frame < WARMUP + MEASURE; ++frame) {
+            PX_LiveVisualDiagFrame diag;
+            run_frame(engine, renderer, buffer, flush, handles, scene, 1, frame, 100, NULL);
+            live2d_engine_visual_diag_copy(engine, &diag);
+            print_visual_row(scene, frame, &diag);
+            if (frame == WARMUP) {
+                int layers = live2d_engine_visual_diag_topology(engine, topo,
+                    PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER);
+                for (int i = 0; i < layers; ++i) {
+                    const PX_LiveVisualDiagLayer *row = &topo[i];
+                    printf("L2D_VISUAL_POSE,%s,%d,%d,%d,%d,%08" PRIx32 ",%08" PRIx32
+                           ",%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32 ",%08" PRIx32 ",",
+                           names[scene], row->index, row->parent, row->depth, row->children,
+                           (uint32_t)row->rotation_bits, (uint32_t)row->local_rotation_bits,
+                           (uint32_t)row->scale_bits, (uint32_t)row->local_tx_bits,
+                           (uint32_t)row->local_ty_bits, (uint32_t)row->key_x_bits,
+                           (uint32_t)row->key_y_bits);
+                    print_visual_id(row->id);
+                    putchar('\n');
+                }
+            }
+        }
+        fflush(stdout);
+        ESP_LOGI(TAG, "visual diagnostic %s done", names[scene]);
+    }
+    free(topo);
+    puts("L2D_DONE");
+    fflush(stdout);
+}
+#endif
+
 void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
     sys_display_buffer_t *buffer, sys_display_flush_t *flush, l2d_axis_handles_t handles,
     int64_t load_us, const char *model_sha256, size_t model_size) {
 #if CONFIG_L2D_PROFILE_CORRECTNESS
     (void)load_us;
     run_correctness(engine, renderer, buffer, flush, handles, model_sha256, model_size);
+    return;
+#elif CONFIG_L2D_PROFILE_VISUAL
+    run_visual(engine, renderer, buffer, flush, handles, load_us, model_sha256, model_size);
     return;
 #elif CONFIG_L2D_PROFILE_DETAIL
     (void)load_us; (void)model_sha256; (void)model_size;

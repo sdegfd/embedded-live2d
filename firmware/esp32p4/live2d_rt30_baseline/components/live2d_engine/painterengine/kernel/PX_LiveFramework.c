@@ -16,6 +16,7 @@
 #include "PX_LiveDeviceFormat.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include <string.h>
 
 /* ── 性能分析模块 ──────────────────────────────── */
 
@@ -105,8 +106,14 @@ static px_float PX_LiveFrameworkClampUV(px_float uv)
 static px_void PX_LiveFrameworkSetLayerCurrentRotationAngle(PX_LiveLayer *pLayer, px_float angle)
 {
 	pLayer->rel_currentRotationAngle = angle;
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagPush(PX_VISUAL_SCOPE_SET);
+#endif
 	pLayer->rel_currentRotationSin = PX_sin_angle(angle);
 	pLayer->rel_currentRotationCos = PX_cos_angle(angle);
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagPop();
+#endif
 }
 
 /** 使用预计算的三角函数值进行二维旋转（优化：避免重复调用 sin/cos） */
@@ -1044,6 +1051,9 @@ px_void PX_LiveFrameworkPause(PX_LiveFramework *plive)
 px_void PX_LiveFrameworkReset(PX_LiveFramework *plive)
 {
 	px_int i;
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_LiveFrameworkVisualDiagInvalidate();
+#endif
 	plive->reg_duration=0;
 	plive->reg_ip=0;
 	plive->reg_elapsed=0;
@@ -1213,25 +1223,284 @@ static px_void PX_LiveFramework_UpdateLayerKeyPoint(PX_LiveFramework *pLive,PX_L
  * its visual subtree position.  It is calculated once per layer update, not
  * once per vertex per ancestor.
  */
+#if CONFIG_L2D_PROFILE_VISUAL
+static PX_LiveVisualDiagFrame s_visual_diag;
+static px_byte s_visual_ancestor_seen[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
+static int s_visual_history_valid;
+static int s_visual_history_layers;
+typedef struct {
+	px_float rotation;
+	px_float local_rotation;
+	px_float scale;
+	px_float local_tx, local_ty, local_tz;
+	px_float hierarchy_tx, hierarchy_ty;
+	px_float key_x, key_y, key_z;
+} PX_LiveVisualDiagSnap;
+static PX_LiveVisualDiagSnap s_visual_snap[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
+
+static px_dword PX_LiveVisualDiagSum(const px_dword *values)
+{
+	px_dword sum=0;
+	int i;
+	for (i=0;i<PX_VISUAL_SCOPE_COUNT;i++) sum+=values[i];
+	return sum;
+}
+
+static int PX_LiveVisualDiagUniqueFloats(const px_float *values, int count)
+{
+	int i,j,unique=0;
+	for (i=0;i<count;i++)
+	{
+		for (j=0;j<i;j++)
+		{
+			if (values[j]==values[i]) break;
+		}
+		if (j==i) unique++;
+	}
+	return unique;
+}
+
+static px_dword PX_LiveVisualDiagFloatBits(px_float value)
+{
+	union { px_float f; px_dword u; } bits;
+	bits.f=value;
+	return bits.u;
+}
+
+static int PX_LiveVisualDiagAncestorChanged(PX_LiveFramework *plive, int index)
+{
+	int guard=0;
+	int parent;
+	if (index<0||index>=plive->layers.size) return 0;
+	parent=PX_VECTORAT(PX_LiveLayer,&plive->layers,index)->parent_index;
+	while (parent>=0&&parent<plive->layers.size&&guard++<PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER)
+	{
+		const PX_LiveLayer *ancestor=PX_VECTORAT(PX_LiveLayer,&plive->layers,parent);
+		const PX_LiveVisualDiagSnap *snap=&s_visual_snap[parent];
+		if (ancestor->rel_currentRotationAngle!=snap->rotation||
+			ancestor->rel_currentLocalRotationAngle!=snap->local_rotation||
+			ancestor->rel_currentLocalScale!=snap->scale||
+			ancestor->rel_currentLocalTranslation.x!=snap->local_tx||
+			ancestor->rel_currentLocalTranslation.y!=snap->local_ty||
+			ancestor->rel_currentLocalTranslation.z!=snap->local_tz||
+			ancestor->currentKeyPoint.x!=snap->key_x||
+			ancestor->currentKeyPoint.y!=snap->key_y||
+			ancestor->currentKeyPoint.z!=snap->key_z)
+		{
+			return 1;
+		}
+		parent=ancestor->parent_index;
+	}
+	return 0;
+}
+
+static void PX_LiveVisualDiagBeginFrame(void)
+{
+	memset(&s_visual_diag,0,sizeof(s_visual_diag));
+	memset(s_visual_ancestor_seen,0,sizeof(s_visual_ancestor_seen));
+	PX_VisualDiagBegin();
+}
+
+static void PX_LiveVisualDiagFinishFrame(PX_LiveFramework *plive, int physical_ran)
+{
+	PX_VisualDiagTrig trig;
+	static px_float rotations[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
+	static px_float local_rotations[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
+	int i,n,unique_ancestors=0;
+	PX_VisualDiagEnd();
+	PX_VisualDiagRead(&trig);
+	n=plive->layers.size;
+	if (n>PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER) n=PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER;
+	s_visual_diag.physical_ran=physical_ran?1u:0u;
+	s_visual_diag.layers=(px_dword)n;
+	s_visual_diag.sin_angle_calls=PX_LiveVisualDiagSum(trig.sin_angle);
+	s_visual_diag.cos_angle_calls=PX_LiveVisualDiagSum(trig.cos_angle);
+	s_visual_diag.sind_calls=PX_LiveVisualDiagSum(trig.sind);
+	s_visual_diag.sind_transform=trig.sind[PX_VISUAL_SCOPE_TRANSFORM];
+	s_visual_diag.sind_final=trig.sind[PX_VISUAL_SCOPE_FINAL];
+	s_visual_diag.sind_set_rotation=trig.sind[PX_VISUAL_SCOPE_SET];
+	s_visual_diag.sind_other=trig.sind[PX_VISUAL_SCOPE_OTHER];
+	s_visual_diag.point_rotate_calls=PX_LiveVisualDiagSum(trig.point_rotate);
+	s_visual_diag.unique_point_rotate_angles=trig.unique_point_rotate_angles;
+	s_visual_diag.point_rotate_angle_samples=trig.point_rotate_angle_samples;
+	s_visual_diag.point_rotate_angle_overflow=trig.point_rotate_angle_overflow;
+	for (i=0;i<PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER;i++)
+	{
+		if (s_visual_ancestor_seen[i]) unique_ancestors++;
+	}
+	s_visual_diag.unique_ancestors=(px_dword)unique_ancestors;
+	for (i=0;i<n;i++)
+	{
+		PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+		rotations[i]=layer->rel_currentRotationAngle;
+		local_rotations[i]=layer->rel_currentLocalRotationAngle;
+	}
+	s_visual_diag.unique_rotation_angles=(px_dword)PX_LiveVisualDiagUniqueFloats(rotations,n);
+	s_visual_diag.unique_local_rotation_angles=(px_dword)PX_LiveVisualDiagUniqueFloats(local_rotations,n);
+	s_visual_diag.history_valid=(s_visual_history_valid&&s_visual_history_layers==n)?1u:0u;
+	if (s_visual_diag.history_valid)
+	{
+		for (i=0;i<n;i++)
+		{
+			PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+			const PX_LiveVisualDiagSnap *snap=&s_visual_snap[i];
+			if (layer->rel_currentRotationAngle!=snap->rotation) s_visual_diag.rotation_changed++;
+			if (layer->rel_currentLocalRotationAngle!=snap->local_rotation) s_visual_diag.local_rotation_changed++;
+			if (layer->rel_currentLocalScale!=snap->scale) s_visual_diag.scale_changed++;
+			if (layer->rel_currentLocalTranslation.x!=snap->local_tx||
+				layer->rel_currentLocalTranslation.y!=snap->local_ty||
+				layer->rel_currentLocalTranslation.z!=snap->local_tz)
+			{
+				s_visual_diag.local_translation_changed++;
+			}
+			if (layer->rel_currentTranslation.x!=snap->hierarchy_tx||
+				layer->rel_currentTranslation.y!=snap->hierarchy_ty)
+			{
+				s_visual_diag.hierarchy_translation_changed++;
+			}
+			if (layer->currentKeyPoint.x!=snap->key_x||
+				layer->currentKeyPoint.y!=snap->key_y||
+				layer->currentKeyPoint.z!=snap->key_z)
+			{
+				s_visual_diag.keypoint_changed++;
+			}
+			if (PX_LiveVisualDiagAncestorChanged(plive,i)) s_visual_diag.parent_visual_changed++;
+		}
+	}
+	for (i=0;i<n;i++)
+	{
+		PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+		PX_LiveVisualDiagSnap *snap=&s_visual_snap[i];
+		snap->rotation=layer->rel_currentRotationAngle;
+		snap->local_rotation=layer->rel_currentLocalRotationAngle;
+		snap->scale=layer->rel_currentLocalScale;
+		snap->local_tx=layer->rel_currentLocalTranslation.x;
+		snap->local_ty=layer->rel_currentLocalTranslation.y;
+		snap->local_tz=layer->rel_currentLocalTranslation.z;
+		snap->hierarchy_tx=layer->rel_currentTranslation.x;
+		snap->hierarchy_ty=layer->rel_currentTranslation.y;
+		snap->key_x=layer->currentKeyPoint.x;
+		snap->key_y=layer->currentKeyPoint.y;
+		snap->key_z=layer->currentKeyPoint.z;
+	}
+	s_visual_history_valid=1;
+	s_visual_history_layers=n;
+	s_visual_diag.diag_pose_us=plive->frameProfile.poseUs;
+	s_visual_diag.diag_physical_us=plive->frameProfile.physicalUs;
+}
+
+void PX_LiveFrameworkVisualDiagInvalidate(void)
+{
+	s_visual_history_valid=0;
+}
+
+void PX_LiveFrameworkVisualDiagCopy(PX_LiveFramework *plive, PX_LiveVisualDiagFrame *out)
+{
+	(void)plive;
+	if (!out) return;
+	*out=s_visual_diag;
+}
+
+int PX_LiveFrameworkVisualDiagTopology(PX_LiveFramework *plive, PX_LiveVisualDiagLayer *out, int capacity)
+{
+	int i,n;
+	if (!plive||!out||capacity<=0) return 0;
+	n=plive->layers.size;
+	if (n>capacity) n=capacity;
+	for (i=0;i<n;i++)
+	{
+		PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+		int depth=1,guard=0,parent=layer->parent_index,children=0,c;
+		PX_LiveVisualDiagLayer *row=&out[i];
+		memset(row,0,sizeof(*row));
+		row->index=i;
+		row->parent=layer->parent_index;
+		while (parent>=0&&parent<plive->layers.size&&guard++<PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER)
+		{
+			depth++;
+			parent=PX_VECTORAT(PX_LiveLayer,&plive->layers,parent)->parent_index;
+		}
+		row->depth=depth;
+		for (c=0;c<PX_COUNTOF(layer->child_index);c++)
+		{
+			if (layer->child_index[c]==-1) break;
+			children++;
+		}
+		row->children=children;
+		row->rotation_bits=PX_LiveVisualDiagFloatBits(layer->rel_currentRotationAngle);
+		row->local_rotation_bits=PX_LiveVisualDiagFloatBits(layer->rel_currentLocalRotationAngle);
+		row->scale_bits=PX_LiveVisualDiagFloatBits(layer->rel_currentLocalScale);
+		row->local_tx_bits=PX_LiveVisualDiagFloatBits(layer->rel_currentLocalTranslation.x);
+		row->local_ty_bits=PX_LiveVisualDiagFloatBits(layer->rel_currentLocalTranslation.y);
+		row->key_x_bits=PX_LiveVisualDiagFloatBits(layer->currentKeyPoint.x);
+		row->key_y_bits=PX_LiveVisualDiagFloatBits(layer->currentKeyPoint.y);
+		for (c=0;c<PX_LIVE_ID_MAX_LEN-1&&layer->id[c];c++) row->id[c]=layer->id[c];
+		row->id[c]=0;
+	}
+	return n;
+}
+#endif
+
 static px_void PX_LiveFramework_GetLayerVisualTransform(PX_LiveFramework *pLive,PX_LiveLayer *pLayer,px_float *pScale,px_float *pRotation,px_point *pTranslation)
 {
 	PX_LiveLayer *pCurrent=pLayer;
 	*pScale=1;
 	*pRotation=0;
 	*pTranslation=PX_POINT(0,0,0);
+#if CONFIG_L2D_PROFILE_VISUAL
+	{
+	int depth=0;
+	PX_VisualDiagPush(PX_VISUAL_SCOPE_TRANSFORM);
+	s_visual_diag.get_visual_calls++;
+#endif
 	while(pCurrent)
 	{
+#if CONFIG_L2D_PROFILE_VISUAL
+		int layer_index;
+		long long t_enter,t_after_pivot,t_after_local,t_before_rel,t_after_rel;
+		depth++;
+		s_visual_diag.ancestor_visits++;
+		layer_index=(int)(pCurrent-(PX_LiveLayer *)pLive->layers.data);
+		if (layer_index>=0&&layer_index<PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER)
+		{
+			s_visual_ancestor_seen[layer_index]=1;
+		}
+		t_enter=esp_timer_get_time();
+#endif
 		px_point pivot=pCurrent->currentKeyPoint;
+#if CONFIG_L2D_PROFILE_VISUAL
+		t_after_pivot=esp_timer_get_time();
+#endif
 		px_point localTranslation=PX_PointRotate(pCurrent->rel_currentLocalTranslation,pCurrent->rel_currentRotationAngle);
+#if CONFIG_L2D_PROFILE_VISUAL
+		t_after_local=esp_timer_get_time();
+#endif
 		px_point relative=PX_PointSub(*pTranslation,pivot);
+#if CONFIG_L2D_PROFILE_VISUAL
+		t_before_rel=esp_timer_get_time();
+#endif
 		relative=PX_PointRotate(relative,pCurrent->rel_currentLocalRotationAngle);
+#if CONFIG_L2D_PROFILE_VISUAL
+		t_after_rel=esp_timer_get_time();
+#endif
 		relative=PX_PointMul(relative,pCurrent->rel_currentLocalScale);
 		*pTranslation=PX_PointAdd(PX_PointAdd(relative,pivot),localTranslation);
 		pTranslation->z=0;
 		*pScale*=pCurrent->rel_currentLocalScale;
 		*pRotation+=pCurrent->rel_currentLocalRotationAngle;
 		pCurrent=PX_LiveFrameworkGetLayerParent(pLive,pCurrent);
+#if CONFIG_L2D_PROFILE_VISUAL
+		s_visual_diag.traverse_us+=(px_dword)((t_after_pivot-t_enter)+(t_before_rel-t_after_local)+(esp_timer_get_time()-t_after_rel));
+		s_visual_diag.local_translation_rotate_us+=(px_dword)(t_after_local-t_after_pivot);
+		s_visual_diag.relative_rotate_us+=(px_dword)(t_after_rel-t_before_rel);
+#endif
 	}
+#if CONFIG_L2D_PROFILE_VISUAL
+	if (depth>(int)s_visual_diag.max_depth) s_visual_diag.max_depth=(px_dword)depth;
+	s_visual_diag.depth_sum+=(px_dword)depth;
+	PX_VisualDiagPop();
+	}
+#endif
 }
 
 static px_point PX_LiveFramework_GetLayerVisualKeyPoint(PX_LiveFramework *pLive,PX_LiveLayer *pLayer)
@@ -1300,8 +1569,18 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 	/* The visual rotation is identical for every vertex in this layer.  Building
 	 * a matrix (and evaluating sin/cos) for every vertex consumed a large share
 	 * of the ESP32-P4 frame budget, especially while head/face axes are active. */
+#if CONFIG_L2D_PROFILE_VISUAL
+	{
+	long long final_begin_us=esp_timer_get_time();
+	PX_VisualDiagPush(PX_VISUAL_SCOPE_FINAL);
+#endif
 	visualRotationCos=PX_cos_angle(visualRotation);
 	visualRotationSin=PX_sin_angle(visualRotation);
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_VisualDiagPop();
+	s_visual_diag.final_sincos_us+=(px_dword)(esp_timer_get_time()-final_begin_us);
+	}
+#endif
 #if CONFIG_L2D_PROFILE_FINE
 	pLive->frameProfile.visualTransformUs+=(px_dword)(esp_timer_get_time()-fine_start_us);
 	fine_vertex_begin_us=esp_timer_get_time();
@@ -1895,11 +2174,17 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 {
 	long long vm_begin_us, physical_begin_us;
 	long long vm_elapsed_us, physical_elapsed_us;
+#if CONFIG_L2D_PROFILE_VISUAL
+	int visual_physical_ran=0;
+#endif
 
 	if (!plive)
 	{
 		return;
 	}
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_LiveVisualDiagBeginFrame();
+#endif
 
 #if CONFIG_L2D_PROFILE_FINE
 	plive->frameProfile.keypointUs=0;
@@ -1919,6 +2204,9 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 		{
 			PX_LiveFrameworkUpdatePhysical(plive,elapsed,PX_FALSE);
 			plive->meshPoseRevision=plive->realtime.evaluatedRevision;
+#if CONFIG_L2D_PROFILE_VISUAL
+			visual_physical_ran=1;
+#endif
 		}
 	}
 	else
@@ -1927,11 +2215,17 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 		vm_elapsed_us=esp_timer_get_time()-vm_begin_us;
 		physical_begin_us=esp_timer_get_time();
 		PX_LiveFrameworkUpdatePhysical(plive,elapsed,PX_TRUE);
+#if CONFIG_L2D_PROFILE_VISUAL
+		visual_physical_ran=1;
+#endif
 	}
 	physical_elapsed_us=esp_timer_get_time()-physical_begin_us;
 
 	plive->frameProfile.poseUs=(px_dword)vm_elapsed_us;
 	plive->frameProfile.physicalUs=(px_dword)physical_elapsed_us;
+#if CONFIG_L2D_PROFILE_VISUAL
+	PX_LiveVisualDiagFinishFrame(plive, visual_physical_ran);
+#endif
 	PX_LiveFrameworkProfileVMUs+=(unsigned long long)vm_elapsed_us;
 	PX_LiveFrameworkProfilePhysicalUs+=(unsigned long long)physical_elapsed_us;
 }

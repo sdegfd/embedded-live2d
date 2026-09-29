@@ -137,6 +137,12 @@ void live2d_engine_render(live2d_engine_t *engine, px_surface *surface, int x, i
 void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
                                      live2d_engine_frame_profile_t *out_profile);
 
+#if CONFIG_L2D_PROFILE_VISUAL
+void live2d_engine_visual_diag_copy(live2d_engine_t *engine, PX_LiveVisualDiagFrame *out);
+int live2d_engine_visual_diag_topology(live2d_engine_t *engine, PX_LiveVisualDiagLayer *out,
+                                       int capacity);
+#endif
+
 /** 获取引擎信息（模型尺寸、图层数、内存使用等）。
  *
  * @param engine    引擎实例

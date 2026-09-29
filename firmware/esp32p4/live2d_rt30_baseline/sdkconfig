@@ -768,6 +768,7 @@ CONFIG_L2D_PROFILE_STAGE=0
 # CONFIG_L2D_CLEAR_CPU is not set
 # CONFIG_L2D_CONVERT_CPU is not set
 # CONFIG_L2D_PROFILE_FINE is not set
+# CONFIG_L2D_PROFILE_VISUAL is not set
 # CONFIG_L2D_PROFILE_DETAIL is not set
 # end of Live2D profiling baseline
 

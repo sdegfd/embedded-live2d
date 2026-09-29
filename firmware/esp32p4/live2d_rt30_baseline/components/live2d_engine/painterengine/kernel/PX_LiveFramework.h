@@ -234,6 +234,65 @@ extern "C" {
 #endif
 px_void PX_LiveFrameworkDetailBeginFrame(px_uchar *overdraw, px_int width, px_int height);
 px_void PX_LiveFrameworkDetailGetFrame(PX_LiveFrameworkDetailFrame *out);
+
+#if CONFIG_L2D_PROFILE_VISUAL
+typedef struct _PX_LiveFramework PX_LiveFramework;
+typedef struct {
+	px_dword physical_ran;
+	px_dword history_valid;
+	px_dword layers;
+	px_dword get_visual_calls;
+	px_dword point_rotate_calls;
+	px_dword sin_angle_calls;
+	px_dword cos_angle_calls;
+	px_dword sind_calls;
+	px_dword sind_transform;
+	px_dword sind_final;
+	px_dword sind_set_rotation;
+	px_dword sind_other;
+	px_dword unique_rotation_angles;
+	px_dword unique_local_rotation_angles;
+	px_dword unique_point_rotate_angles;
+	px_dword point_rotate_angle_samples;
+	px_dword point_rotate_angle_overflow;
+	px_dword ancestor_visits;
+	px_dword unique_ancestors;
+	px_dword depth_sum;
+	px_dword max_depth;
+	px_dword rotation_changed;
+	px_dword local_rotation_changed;
+	px_dword scale_changed;
+	px_dword local_translation_changed;
+	px_dword hierarchy_translation_changed;
+	px_dword keypoint_changed;
+	px_dword parent_visual_changed;
+	px_dword traverse_us;
+	px_dword local_translation_rotate_us;
+	px_dword relative_rotate_us;
+	px_dword final_sincos_us;
+	px_dword diag_pose_us;
+	px_dword diag_physical_us;
+} PX_LiveVisualDiagFrame;
+
+typedef struct {
+	px_int index;
+	px_int parent;
+	px_int depth;
+	px_int children;
+	px_dword rotation_bits;
+	px_dword local_rotation_bits;
+	px_dword scale_bits;
+	px_dword local_tx_bits;
+	px_dword local_ty_bits;
+	px_dword key_x_bits;
+	px_dword key_y_bits;
+	px_char id[PX_LIVE_ID_MAX_LEN];
+} PX_LiveVisualDiagLayer;
+
+void PX_LiveFrameworkVisualDiagInvalidate(void);
+void PX_LiveFrameworkVisualDiagCopy(PX_LiveFramework *plive, PX_LiveVisualDiagFrame *out);
+int PX_LiveFrameworkVisualDiagTopology(PX_LiveFramework *plive, PX_LiveVisualDiagLayer *out, int capacity);
+#endif
 #ifdef __cplusplus
 }
 #endif

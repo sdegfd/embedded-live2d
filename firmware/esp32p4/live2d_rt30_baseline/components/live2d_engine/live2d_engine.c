@@ -458,6 +458,22 @@ void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
     if (engine && engine->loaded) *out_profile = engine->live.frameProfile;
 }
 
+#if CONFIG_L2D_PROFILE_VISUAL
+void live2d_engine_visual_diag_copy(live2d_engine_t *engine, PX_LiveVisualDiagFrame *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (engine && engine->loaded) PX_LiveFrameworkVisualDiagCopy(&engine->live, out);
+}
+
+int live2d_engine_visual_diag_topology(live2d_engine_t *engine, PX_LiveVisualDiagLayer *out,
+                                       int capacity)
+{
+    if (!engine || !engine->loaded) return 0;
+    return PX_LiveFrameworkVisualDiagTopology(&engine->live, out, capacity);
+}
+#endif
+
 void live2d_engine_get_geometry(const live2d_engine_t *engine,
                                 live2d_engine_geometry_t *out)
 {

@@ -28,7 +28,9 @@ def main() -> int:
     paths = {"L2D_FRAME": args.out / "frames.csv",
              "L2D_SUMMARY": args.out / "summary.csv",
              "L2D_DETAIL": args.out / "detail.csv",
-             "L2D_CORRECTNESS": args.out / "correctness.csv"}
+             "L2D_CORRECTNESS": args.out / "correctness.csv",
+             "L2D_VISUAL_POSE": args.out / "visual_pose.csv",
+             "L2D_VISUAL": args.out / "visual.csv"}
     files = {}
     raw = (args.out / "serial.log").open("wb") if args.port else None
     metadata = []
@@ -91,7 +93,8 @@ def main() -> int:
             file.close()
     print("capture", "complete" if done else "incomplete", "frames", counts["L2D_FRAME"],
           "summary rows", counts["L2D_SUMMARY"], "detail rows", counts["L2D_DETAIL"],
-          "correctness rows", counts["L2D_CORRECTNESS"])
+          "correctness rows", counts["L2D_CORRECTNESS"],
+          "visual rows", counts["L2D_VISUAL"], "visual pose rows", counts["L2D_VISUAL_POSE"])
     return 0 if done and any(counts.values()) else 2
 
 

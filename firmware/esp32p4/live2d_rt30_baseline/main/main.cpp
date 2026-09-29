@@ -361,7 +361,7 @@ static void render_task(void *arg)
     esp_log_level_set("sys_monitor", ESP_LOG_WARN);
     ESP_LOGI(TAG, "continuous RT30 drive active on %d model axes", axis_count);
 
-#if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS
+#if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS || CONFIG_L2D_PROFILE_VISUAL
     l2d_axis_handles_t handles = {h_eye_l, h_eye_r, h_neck, h_face, h_mouth};
     l2d_run_profile_suite(engine, &renderer, &buffer, &flush, handles,
                           load_end - load_begin, model_sha_hex, model_size);
