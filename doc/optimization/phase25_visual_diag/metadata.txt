@@ -1,0 +1,12 @@
+esp_commit=6c8d79e283b770437b1f1438a8d27e76029e05d6
+live2d_commit=78fc634
+model_sha256=786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b
+model_size=798660
+model_load_us=262462
+mode=visual_diagnostic
+profile_visual=1
+scale_q100=100
+warmup=5
+measure=50
+rounds=1
+note=section_times_include_timer_reads_and_are_not_formal_benchmarks
