@@ -266,6 +266,37 @@ bool l2d_instance_is_loaded(const l2d_instance_t *instance)
     return instance && live2d_engine_is_loaded(instance->engine);
 }
 
+bool l2d_instance_play_animation(l2d_instance_t *instance, int animation_index)
+{
+    return instance && live2d_engine_play_index(instance->engine, animation_index);
+}
+
+void l2d_instance_pause_animation(l2d_instance_t *instance)
+{
+    if (instance) live2d_engine_pause_animation(instance->engine);
+}
+
+bool l2d_instance_resume_animation(l2d_instance_t *instance)
+{
+    return instance && live2d_engine_resume_animation(instance->engine);
+}
+
+void l2d_instance_stop_animation(l2d_instance_t *instance)
+{
+    if (instance) live2d_engine_stop_animation(instance->engine);
+}
+
+l2d_playback_mode_t l2d_instance_playback_mode(const l2d_instance_t *instance)
+{
+    return instance ? (l2d_playback_mode_t)live2d_engine_playback_mode(instance->engine)
+                    : L2D_PLAYBACK_NEUTRAL;
+}
+
+int l2d_instance_current_animation(const l2d_instance_t *instance)
+{
+    return instance ? live2d_engine_get_current_animation_index(instance->engine) : -1;
+}
+
 void l2d_instance_info(const l2d_instance_t *instance, l2d_instance_info_t *out)
 {
     live2d_engine_info_t info;

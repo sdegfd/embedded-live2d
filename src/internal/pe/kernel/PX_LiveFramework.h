@@ -402,69 +402,29 @@ px_bool PX_LiveFrameworkPlayAnimationByName(PX_LiveFramework *plive,const px_cha
 
 /* ── 图层管理 ─────────────────────────────────── */
 
-/** 通过 ID 查找图层 */
-PX_LiveLayer *PX_LiveFrameworkGetLayerById(PX_LiveFramework *plive,const px_char id[]);
-/** 创建新图层 */
-PX_LiveLayer *PX_LiveFrameworkCreateLayer(PX_LiveFramework *plive,const px_char id[]);
 /** 获取图层的父图层 */
 PX_LiveLayer *PX_LiveFrameworkGetLayerParent(PX_LiveFramework *plive,PX_LiveLayer *pLayer);
 /** 获取图层的子图层 */
 PX_LiveLayer *PX_LiveFrameworkGetLayerChild(PX_LiveFramework *plive,PX_LiveLayer *pLayer,px_int childIndex);
-/** 将图层与纹理绑定 */
-px_bool PX_LiveFrameworkLinkLayerTexture(PX_LiveFramework *plive,const px_char layer_id[],const px_char texture_id[]);
 /** 通过索引获取图层 */
 PX_LiveLayer *PX_LiveFrameworkGetLayer(PX_LiveFramework *plive,px_int index);
-/** 获取图层的索引 */
-px_int PX_LiveFrameworkGetLayerIndex(PX_LiveFramework *plive,PX_LiveLayer *pLayer);
-/** 获取最后创建的图层 */
-PX_LiveLayer *PX_LiveFrameworkGetLastCreateLayer(PX_LiveFramework *plive);
 
 /* ── UV 坐标更新 ───────────────────────────────── */
 
-/** 更新指定图层的源顶点 UV 坐标 */
-px_void PX_LiveFrameworkUpdateLayerSourceVerticesUV(PX_LiveFramework *plive,PX_LiveLayer *pLayer);
-/** 更新所有图层的源顶点 UV 坐标 */
-px_void PX_LiveFrameworkUpdateSourceVerticesUV(PX_LiveFramework *plive);
 /** 更新指定图层的渲染顶点 UV 坐标 */
 px_void PX_LiveFrameworkUpdateLayerRenderVerticesUV(PX_LiveFramework *plive,PX_LiveLayer *pLayer);
 
 /* ── 动画数据管理 ──────────────────────────────── */
 
-/** 通过 ID 获取动画 */
-PX_LiveAnimation *PX_LiveFrameworkGetAnimationById(PX_LiveFramework *plive,const px_char id[]);
-/** 创建新动画 */
-PX_LiveAnimation *PX_LiveFrameworkCreateAnimation(PX_LiveFramework *plive,const px_char id[]);
-/** 通过索引获取动画 */
-PX_LiveAnimation *PX_LiveFrameworkGetAnimation(PX_LiveFramework *plive,px_int index);
-/** 获取最后创建的动画 */
-PX_LiveAnimation *PX_LiveFrameworkGetLastCreateAnimation(PX_LiveFramework *plive);
 
 /* ── 纹理管理 ─────────────────────────────────── */
 
-/** 添加 Live2D 纹理 */
-px_bool PX_LiveFrameworkAddLiveTexture(PX_LiveFramework *plive,PX_LiveTexture livetexture);
-/** 通过 ID 获取纹理 */
-PX_LiveTexture *PX_LiveFrameworkGetLiveTextureById(PX_LiveFramework *plive,const px_char id[]);
-/** 通过 ID 获取纹理索引 */
-px_int PX_LiveFrameworkGetLiveTextureIndexById(PX_LiveFramework *plive,const px_char id[]);
-/** 通过索引获取纹理 */
-PX_LiveTexture *PX_LiveFrameworkGetLiveTexture(PX_LiveFramework *plive,px_int index);
 
 /* ── 删除操作 ─────────────────────────────────── */
 
-/** 通过 ID 删除纹理 */
-px_void  PX_LiveFrameworkDeleteLiveTextureById(PX_LiveFramework *plive,const px_char id[]);
-/** 通过 ID 删除动画 */
-px_void PX_LiveFrameworkDeleteLiveAnimationById(PX_LiveFramework *plive,const px_char id[]);
 
 /* ── 图层链接管理 ──────────────────────────────── */
 
-/** 递归搜索子图层中是否已存在目标链接 */
-px_bool PX_LiveFrameworkLinkLayerSearchSubLayer(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *pSearchLayer);
-/** 建立图层父子链接 */
-px_void PX_LiveFrameworkLinkLayer(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *linkLayer);
-/** 清除所有图层的父子链接 */
-px_void PX_LiveFrameworkClearLinker(PX_LiveFramework *plive);
 
 /* ── 删除操作（按索引） ─────────────────────────── */
 
@@ -474,49 +434,12 @@ px_void PX_LiveFrameworkDeleteLayer(PX_LiveFramework *plive,px_int index);
 px_void PX_LiveFrameworkDeleteLiveTexture(PX_LiveFramework *plive,px_int index);
 /** 通过索引删除动画 */
 px_void PX_LiveFrameworkDeleteLiveAnimation(PX_LiveFramework *plive,px_int index);
-/** 通过动画索引和帧索引删除指定帧 */
-px_void PX_LiveFrameworkDeleteLiveAnimationFrameByIndex(PX_LiveFramework *plive,px_int AnimationIndex,px_int frameIndex);
 /** 释放框架所有资源 */
 px_void PX_LiveFrameworkFree(PX_LiveFramework *plive);
 
 
-/* ── 编辑器函数 ───────────────────────────────── */
-
-/** 获取当前编辑的帧数据 */
-px_void *PX_LiveFrameworkGetCurrentEditFrame(PX_LiveFramework *plive);
-/** 获取当前编辑的图层 */
-PX_LiveLayer *PX_LiveFrameworkGetCurrentEditLiveLayer(PX_LiveFramework *plive);
-/** 获取当前编辑的顶点 */
-PX_LiveVertex *PX_LiveFrameworkGetCurrentEditLiveVertex(PX_LiveFramework *plive);
-
-/** 将当前编辑帧下移（交换帧顺序） */
-px_void PX_LiveFrameworkCurrentEditMoveFrameDown(PX_LiveFramework *plive);
-/** 将当前编辑帧上移（交换帧顺序） */
-px_void PX_LiveFrameworkCurrentEditMoveFrameUp(PX_LiveFramework *plive);
-
-/** 获取当前编辑的动画 */
-PX_LiveAnimation * PX_LiveFrameworkGetCurrentEditAnimation(PX_LiveFramework *plive);
-/** 获取当前编辑的动画帧头部 */
-PX_LiveAnimationFrameHeader * PX_LiveFrameworkGetCurrentEditAnimationFrame(PX_LiveFramework *plive);
-/** 获取当前编辑动画帧指定索引的荷载 */
-PX_LiveAnimationFramePayload *PX_LiveFrameworkGetCurrentEditAnimationFramePayloadIndex(PX_LiveFramework *plive,px_int payloadIndex);
-/** 获取当前编辑动画帧的荷载（当前图层索引） */
-PX_LiveAnimationFramePayload *PX_LiveFrameworkGetCurrentEditAnimationFramePayload(PX_LiveFramework *plive);
-/** 获取当前编辑动画帧中指定顶点的位移数据 */
-px_point *PX_LiveFrameworkGetCurrentEditAnimationFramePayloadVertex(PX_LiveFramework *plive);
-/** 删除当前编辑的动画 */
-px_void PX_LiveFrameworkDeleteCurrentEditAnimation(PX_LiveFramework *plive);
-/** 删除当前编辑的动画帧 */
-px_void PX_LiveFrameworkDeleteCurrentEditAnimationFrame(PX_LiveFramework *plive);
-/** 创建新编辑帧（可拷贝当前帧或创建空白帧） */
-px_bool PX_LiveFrameworkNewEditFrame(PX_LiveFramework *plive,px_char id[],px_bool bCopyFrame);
-/** 立即执行当前编辑帧的指令 */
-px_void PX_LiveFrameworkRunCurrentEditFrame(PX_LiveFramework *plive);
-
 /* ── 导入导出 ─────────────────────────────────── */
 
-/** 导出 Live2D 框架数据到内存缓冲区 */
-px_bool PX_LiveFrameworkExport(PX_LiveFramework *plive,px_memory *exportbuffer);
 /** 从内存缓冲区导入 Live2D 框架数据 */
 px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void *buffer,px_int size);
 

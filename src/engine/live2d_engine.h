@@ -105,6 +105,10 @@ l2d_status_t live2d_engine_load(live2d_engine_t *engine, const void *model_data,
 
 void live2d_engine_play_default(live2d_engine_t *engine);
 bool live2d_engine_play_index(live2d_engine_t *engine, int animation_index);
+void live2d_engine_pause_animation(live2d_engine_t *engine);
+bool live2d_engine_resume_animation(live2d_engine_t *engine);
+void live2d_engine_stop_animation(live2d_engine_t *engine);
+int live2d_engine_playback_mode(const live2d_engine_t *engine);
 void live2d_engine_play_default_index(live2d_engine_t *engine, int animation_index);
 bool live2d_engine_is_animation_finished(const live2d_engine_t *engine);
 bool live2d_engine_cycle_animation_if_needed(live2d_engine_t *engine);

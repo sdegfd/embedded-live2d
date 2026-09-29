@@ -38,6 +38,12 @@ extern "C" {
 
 typedef struct l2d_instance l2d_instance_t;
 
+typedef enum {
+    L2D_PLAYBACK_NEUTRAL = 0,
+    L2D_PLAYBACK_TIMELINE = 1,
+    L2D_PLAYBACK_RT30 = 2
+} l2d_playback_mode_t;
+
 typedef struct {
     char id[L2D_ID_MAX];
     int width;
@@ -82,6 +88,14 @@ void l2d_instance_destroy(l2d_instance_t *instance);
 
 bool l2d_instance_is_loaded(const l2d_instance_t *instance);
 void l2d_instance_info(const l2d_instance_t *instance, l2d_instance_info_t *out);
+
+/** Timeline playback uses the model's imported animation frames. */
+bool l2d_instance_play_animation(l2d_instance_t *instance, int animation_index);
+void l2d_instance_pause_animation(l2d_instance_t *instance);
+bool l2d_instance_resume_animation(l2d_instance_t *instance);
+void l2d_instance_stop_animation(l2d_instance_t *instance);
+l2d_playback_mode_t l2d_instance_playback_mode(const l2d_instance_t *instance);
+int l2d_instance_current_animation(const l2d_instance_t *instance);
 
 bool l2d_instance_enter_rt30(l2d_instance_t *instance);
 void l2d_instance_reset_rt30(l2d_instance_t *instance);

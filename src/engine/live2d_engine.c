@@ -106,6 +106,34 @@ bool live2d_engine_play_index(live2d_engine_t *engine, int animation_index)
     return PX_LiveFrameworkPlayAnimation(&engine->live, animation_index) == PX_TRUE;
 }
 
+void live2d_engine_pause_animation(live2d_engine_t *engine)
+{
+    if (engine && engine->loaded && engine->live.animationMode == PX_LIVE_MODE_TIMELINE) {
+        PX_LiveFrameworkPause(&engine->live);
+    }
+}
+
+bool live2d_engine_resume_animation(live2d_engine_t *engine)
+{
+    if (!engine || !engine->loaded || engine->live.animationMode != PX_LIVE_MODE_TIMELINE) {
+        return false;
+    }
+    PX_LiveFrameworkPlay(&engine->live);
+    return true;
+}
+
+void live2d_engine_stop_animation(live2d_engine_t *engine)
+{
+    if (engine && engine->loaded && engine->live.animationMode == PX_LIVE_MODE_TIMELINE) {
+        PX_LiveFrameworkStop(&engine->live);
+    }
+}
+
+int live2d_engine_playback_mode(const live2d_engine_t *engine)
+{
+    return engine && engine->loaded ? (int)engine->live.animationMode : (int)PX_LIVE_MODE_NEUTRAL;
+}
+
 /** 快速像素着色器：实现带混合模式的ARGB像素渲染，支持透明度混合。
  *
  * 该着色器替代 PainterEngine 默认像素着色器，针对 ESP32-P4 优化。
