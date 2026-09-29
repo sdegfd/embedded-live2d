@@ -138,6 +138,8 @@ void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
                                      live2d_engine_frame_profile_t *out_profile);
 void live2d_engine_get_geometry_bounds(const live2d_engine_t *engine,
                                        PX_LiveGeometryBounds *out);
+/** Changes on load, RT30 reset and render scale change; invalidates ROI history. */
+uint32_t live2d_engine_get_roi_revision(const live2d_engine_t *engine);
 void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
                                   uint32_t *hit, uint32_t *miss);
 

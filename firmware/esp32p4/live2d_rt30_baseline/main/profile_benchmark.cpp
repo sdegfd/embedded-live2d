@@ -38,6 +38,9 @@
 #ifndef CONFIG_L2D_PROFILE_ROI_DIAG
 #define CONFIG_L2D_PROFILE_ROI_DIAG 0
 #endif
+#ifndef CONFIG_L2D_SRM_ROI
+#define CONFIG_L2D_SRM_ROI 0
+#endif
 
 static const char *TAG = "l2d_profile";
 static int active_backend;
@@ -97,8 +100,8 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
     char name[64];
     live2d_engine_set_render_scale(engine, 1.0f);
     printf("L2D_META_BEGIN\nesp_commit=%s\nmodel_sha256=%s\nmodel_size=%u\n"
-           "mode=correctness\nscale_q100=100\nL2D_META_END\n",
-           L2D_ESP_COMMIT, model_sha256, (unsigned)model_size);
+           "mode=correctness\nscale_q100=100\nsrm_roi=%d\nL2D_META_END\n",
+           L2D_ESP_COMMIT, model_sha256, (unsigned)model_size, CONFIG_L2D_SRM_ROI);
     fputs("L2D_CORRECTNESS_HEADER,pose,scale_q100,frame_id,argb_crc32,rgb565_crc32,render_ok,submit_ok,backend\n", stdout);
     const int backend_count = CONFIG_L2D_PROFILE_STAGE == 2 ? 4 : 1;
     for (int backend = 0; backend < backend_count; ++backend) {
@@ -165,6 +168,33 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
     pose_ok = reloaded;
     for (int i = 0; i < 4; ++i) pose_ok = set_axis(engine, axis_handles[i], 14.5f) && pose_ok;
     emit_correctness(engine, renderer, buffer, flush, "RELOAD_POSE", pose_ok);
+    /* Consecutive frames expose stale RGB565 pixels that fixed poses cannot. */
+    live2d_engine_reset_realtime(engine);
+    for (int i=0;i<20;++i) {
+        snprintf(name,sizeof(name),"DYN_STATIC_%03d",i);
+        emit_correctness(engine,renderer,buffer,flush,name,true);
+    }
+    for (int axis=0;axis<2;++axis) {
+        int handle=axis==0?h.neck:h.eye_l;
+        live2d_engine_reset_realtime(engine);
+        for (int step=0;step<=116;++step) {
+            float sample=step<=58?0.5f*step:0.5f*(116-step);
+            snprintf(name,sizeof(name),"DYN_%s_%03d",axis==0?"NECK":"EYE_L",step);
+            emit_correctness(engine,renderer,buffer,flush,name,set_axis(engine,handle,sample));
+        }
+    }
+    live2d_engine_reset_realtime(engine);
+    for (int frame=0;frame<120;++frame) {
+        bool ok=true;
+        for(int axis=0;axis<5;++axis) {
+            if(handles[axis]<0) continue;
+            int phase=(frame+axis*7)%58;
+            float sample=(float)(phase<=29?phase:58-phase);
+            ok=set_axis(engine,handles[axis],sample)&&ok;
+        }
+        snprintf(name,sizeof(name),"DYN_MULTI_%03d",frame);
+        emit_correctness(engine,renderer,buffer,flush,name,ok);
+    }
     }
     puts("L2D_DONE");
     fflush(stdout);
@@ -194,7 +224,7 @@ typedef struct {
     roi_sample_t roi;
 } sample_t;
 static sample_t *ring;
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
 static void fill_roi_sample(roi_sample_t *s, const live2d_renderer_t *r) {
     const live2d_roi_t *c=&r->roi_current,*p=&r->roi_previous,*u=&r->roi_union;
     uint32_t full=(uint32_t)r->buffer->width*r->buffer->height;
@@ -299,7 +329,7 @@ static void run_frame(live2d_engine_t *engine, live2d_renderer_t *renderer,
                            flush->panel_frame_id != id) ? 1 : 0;
         out->lock_skip = submit_ret == ESP_ERR_TIMEOUT ? 1 : 0;
         out->deadline_miss = end - begin > FRAME_US ? 1 : 0;
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
         fill_roi_sample(&out->roi,renderer);
 #endif
         /* slot wait/miss and blend are 0 because this baseline directly submits
@@ -340,7 +370,7 @@ static void write_row(FILE *csv, const sample_t *s) {
         fprintf(csv, ",%" PRIu32, v[i]);
     fputc('\n', csv);
 }
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
 static void write_roi_row(FILE *out, const sample_t *s) {
     fprintf(out,"L2D_ROI,%" PRIu32 ",%s,%" PRIu32 ",%" PRIu32 ",%" PRIu32,
             s->frame_id,names[s->scenario],s->scale_q100,s->round,s->frame);
@@ -565,7 +595,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         "model_sha256=%s\nmodel_size=%u\nmodel_load_us=%lld\n"
         "layers=%d\nvertices=%" PRIu32 "\ntriangles=%" PRIu32
         "\ntextures=%d\ntexture_pixels=%" PRIu32 "\naxes=%d\nsampler=fast-nearest\n"
-        "profile_stage=%d\nprofile_mode=%s\n"
+        "profile_stage=%d\nprofile_mode=%s\nsrm_roi=%d\n"
         "default_clear=%s\ndefault_convert=%s\n"
         "backend_ids=0:PPA/PPA,1:CPU/PPA,2:PPA/CPU,3:CPU/CPU\n"
         "warmup=%d\nmeasure=%d\nrounds=%d\n",
@@ -577,6 +607,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
         live2d_engine_get_realtime_axis_count(engine), CONFIG_L2D_PROFILE_STAGE,
         CONFIG_L2D_PROFILE_ROI_DIAG ? "roi_diagnostic" :
             (CONFIG_L2D_PROFILE_FINE ? "fine_diagnostic" : "timing"),
+        CONFIG_L2D_SRM_ROI,
         CONFIG_L2D_CLEAR_CPU ? "CPU" : "PPA",
         CONFIG_L2D_CONVERT_CPU ? "CPU" : "PPA",
         WARMUP, MEASURE, ROUNDS);
@@ -590,7 +621,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
           "keypoint_us,visual_transform_us,stretch_us,vertex_transform_us,uv_update_us,"
           "trig_cache_hit,trig_cache_miss\n", csv);
     fputs("L2D_SUMMARY_HEADER,scenario,scale_q100,round,metric,count,avg,p50,p95,p99,min,max,backend\n", summary);
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
     fputs("L2D_ROI_HEADER,frame_id,scenario,scale_q100,round,frame,current_valid,"
           "current_min_x,current_min_y,current_max_x,current_max_y,current_w,current_h,current_area,"
           "previous_valid,previous_min_x,previous_min_y,previous_max_x,previous_max_y,"
@@ -627,7 +658,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                               i+WARMUP, scale, &ring[i]);
                 }
                 for (int i = 0; i < MEASURE; ++i) write_row(csv, &ring[i]);
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
                 for (int i = 0; i < MEASURE; ++i) write_roi_row(csv, &ring[i]);
 #endif
                 fflush(csv);
@@ -642,7 +673,7 @@ void l2d_run_profile_suite(live2d_engine_t *engine, live2d_renderer_t *renderer,
                 SUM(vertex_transform_us); SUM(uv_update_us);
                 SUM(trig_cache_hit); SUM(trig_cache_miss);
                 SUM(slot_miss); SUM(lock_skip); SUM(deadline_miss);
-#if CONFIG_L2D_PROFILE_ROI_DIAG
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
                 SUM(roi.current_area); SUM(roi.union_area);
                 SUM(roi.current_area_ratio_q10000); SUM(roi.union_area_ratio_q10000);
                 SUM(roi.current_w); SUM(roi.current_h); SUM(roi.union_w); SUM(roi.union_h);

@@ -332,25 +332,42 @@ static esp_err_t live2d_renderer_select_ppa_config(live2d_renderer_t *renderer)
 static esp_err_t live2d_renderer_convert_to_rgb565_ppa(live2d_renderer_t *renderer)
 {
     int64_t ppa_begin_us = esp_timer_get_time();
+    int block_x=renderer->source_block_x, block_y=renderer->source_block_y;
+    int block_w=renderer->source_block_w, block_h=renderer->source_block_h;
+    int out_x=0, out_y=0;
+    float scale_x=(float)renderer->buffer->width/(float)block_w;
+    float scale_y=(float)renderer->buffer->height/(float)block_h;
+#if CONFIG_L2D_SRM_ROI
+    /* ROI is only defined for the 1:1 baseline. Other source layouts retain
+     * the original full-frame conversion, including the same scale factors. */
+    if (!renderer->roi_force_full && renderer->roi_union.valid &&
+        renderer->source_block_x==0 && renderer->source_block_y==0 &&
+        block_w==renderer->buffer->width && block_h==renderer->buffer->height) {
+        block_x=renderer->roi_union.x; block_y=renderer->roi_union.y;
+        block_w=renderer->roi_union.w; block_h=renderer->roi_union.h;
+        out_x=block_x; out_y=block_y;
+        scale_x=1.f; scale_y=1.f;
+    }
+#endif
     ppa_srm_oper_config_t srm_config = {
         .in.buffer = renderer->buffer->render_argb8888,
         .in.pic_w = (uint32_t)renderer->buffer->width,
         .in.pic_h = (uint32_t)renderer->buffer->height,
-        .in.block_w = (uint32_t)renderer->source_block_w,
-        .in.block_h = (uint32_t)renderer->source_block_h,
-        .in.block_offset_x = (uint32_t)renderer->source_block_x,
-        .in.block_offset_y = (uint32_t)renderer->source_block_y,
+        .in.block_w = (uint32_t)block_w,
+        .in.block_h = (uint32_t)block_h,
+        .in.block_offset_x = (uint32_t)block_x,
+        .in.block_offset_y = (uint32_t)block_y,
         .in.srm_cm = PPA_SRM_COLOR_MODE_ARGB8888,
         .out.buffer = renderer->buffer->frame_rgb565,
         .out.buffer_size = renderer->buffer->frame_bytes,
         .out.pic_w = (uint32_t)renderer->buffer->width,
         .out.pic_h = (uint32_t)renderer->buffer->height,
-        .out.block_offset_x = 0,
-        .out.block_offset_y = 0,
+        .out.block_offset_x = (uint32_t)out_x,
+        .out.block_offset_y = (uint32_t)out_y,
         .out.srm_cm = PPA_SRM_COLOR_MODE_RGB565,
         .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
-        .scale_x = (float)renderer->buffer->width / (float)renderer->source_block_w,
-        .scale_y = (float)renderer->buffer->height / (float)renderer->source_block_h,
+        .scale_x = scale_x,
+        .scale_y = scale_y,
         .rgb_swap = renderer->ppa_rgb_swap,
         .byte_swap = renderer->ppa_byte_swap,
         .alpha_update_mode = PPA_ALPHA_NO_CHANGE,
@@ -546,6 +563,16 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
         y = 0;
     }
 
+#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
+    bool roi_discontinuity=renderer->roi_history_ready &&
+        (renderer->last_origin_x!=x || renderer->last_origin_y!=y ||
+         renderer->roi_canvas_w!=renderer->buffer->width ||
+         renderer->roi_canvas_h!=renderer->buffer->height ||
+         renderer->roi_rgb565_buffer!=renderer->buffer->frame_rgb565 ||
+         renderer->roi_last_ppa_backend!=renderer->use_ppa_convert ||
+         renderer->roi_last_conversion_enabled!=renderer->convert_rgb565 ||
+         renderer->roi_engine_revision!=live2d_engine_get_roi_revision(engine));
+#endif
     renderer->last_origin_x = x;
     renderer->last_origin_y = y;
     int64_t bounds_begin_us = esp_timer_get_time();
@@ -565,12 +592,24 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
     renderer->roi_previous = renderer->roi_current;
     renderer->roi_current = live2d_renderer_geometry_roi(&geometry,
         renderer->buffer->width, renderer->buffer->height);
-    renderer->roi_force_full = !renderer->roi_history_ready || geometry.unsafe;
+    renderer->roi_force_full = !renderer->roi_history_ready || roi_discontinuity ||
+        geometry.unsafe;
     renderer->roi_union = renderer->roi_force_full
         ? (live2d_roi_t){.x=0,.y=0,.w=renderer->buffer->width,
                          .h=renderer->buffer->height,.valid=true}
         : live2d_renderer_union_roi(renderer->roi_previous, renderer->roi_current);
+    if (!renderer->roi_union.valid) {
+        renderer->roi_force_full=true;
+        renderer->roi_union=(live2d_roi_t){.x=0,.y=0,.w=renderer->buffer->width,
+            .h=renderer->buffer->height,.valid=true};
+    }
     renderer->roi_history_ready = true;
+    renderer->roi_engine_revision=live2d_engine_get_roi_revision(engine);
+    renderer->roi_canvas_w=renderer->buffer->width;
+    renderer->roi_canvas_h=renderer->buffer->height;
+    renderer->roi_rgb565_buffer=renderer->buffer->frame_rgb565;
+    renderer->roi_last_ppa_backend=renderer->use_ppa_convert;
+    renderer->roi_last_conversion_enabled=renderer->convert_rgb565;
 #endif
 
     int64_t convert_begin_us = esp_timer_get_time();

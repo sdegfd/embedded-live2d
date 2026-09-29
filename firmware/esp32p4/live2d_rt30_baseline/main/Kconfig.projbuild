@@ -59,6 +59,13 @@ config L2D_PROFILE_ROI_DIAG
         Adds screen-space triangle bounds and previous/current union counters.
         This build is diagnostic only and is not a formal timing benchmark.
 
+config L2D_SRM_ROI
+    bool "Convert only previous/current Live2D geometry union with PPA SRM"
+    default n
+    help
+        Keeps full ARGB clear, raster, cache synchronization, and panel submit.
+        Only the blocking ARGB8888 to RGB565 PPA SRM block is reduced.
+
 config L2D_PROFILE_OVERDRAW
     bool "Collect uint8 overdraw map"
     depends on L2D_PROFILE_DETAIL

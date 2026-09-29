@@ -770,6 +770,8 @@ CONFIG_L2D_PROFILE_STAGE=0
 # CONFIG_L2D_PROFILE_FINE is not set
 # CONFIG_L2D_PROFILE_VISUAL is not set
 # CONFIG_L2D_PROFILE_DETAIL is not set
+# CONFIG_L2D_PROFILE_ROI_DIAG is not set
+CONFIG_L2D_SRM_ROI=y
 # end of Live2D profiling baseline
 
 #

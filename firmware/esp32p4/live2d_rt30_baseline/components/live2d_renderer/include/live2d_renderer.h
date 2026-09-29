@@ -66,6 +66,10 @@ typedef struct {
     live2d_roi_t roi_current, roi_previous, roi_union;
     bool roi_force_full;
     bool roi_history_ready;
+    uint32_t roi_engine_revision;
+    int roi_canvas_w, roi_canvas_h;
+    const void *roi_rgb565_buffer;
+    bool roi_last_ppa_backend, roi_last_conversion_enabled;
     ppa_client_handle_t ppa_srm_handle;    /**< PPA SRM（缩放/旋转/镜像）硬件句柄 */
     ppa_client_handle_t ppa_fill_handle;   /**< PPA FILL 透明清屏硬件句柄 */
     bool convert_rgb565;                   /**< 是否需要输出 RGB565 帧缓冲（overlay 路径可关闭） */

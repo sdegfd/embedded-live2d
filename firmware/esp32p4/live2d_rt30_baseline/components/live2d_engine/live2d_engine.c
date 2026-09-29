@@ -29,6 +29,7 @@ struct live2d_engine {
     px_memorypool pool;      /**< PainterEngine内存池对象 */
     PX_LiveFramework live;   /**< PainterEngine Live2D框架实例 */
     bool loaded;             /**< 模型是否已加载 */
+    uint32_t roi_revision;   /**< Model/view discontinuity generation. */
 };
 
 static const char *TAG = "live2d_engine";
@@ -239,6 +240,7 @@ esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, si
     if (!engine || !model_data || model_size == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+    ++engine->roi_revision;
 
     if (engine->loaded) {
         PX_LiveFrameworkFree(&engine->live);
@@ -324,7 +326,9 @@ void live2d_engine_set_render_scale(live2d_engine_t *engine, float render_scale)
         return;
     }
 
-    engine->live.renderScale = live2d_engine_clamp_render_scale(render_scale);
+    float next_scale=live2d_engine_clamp_render_scale(render_scale);
+    if (engine->live.renderScale != next_scale) ++engine->roi_revision;
+    engine->live.renderScale = next_scale;
     ESP_LOGI(TAG, "Internal render scale set to %.3f", (double)engine->live.renderScale);
 }
 
@@ -464,6 +468,11 @@ void live2d_engine_get_geometry_bounds(const live2d_engine_t *engine,
     PX_LiveFrameworkGetGeometryBounds(engine && engine->loaded ? &engine->live : NULL, out);
 }
 
+uint32_t live2d_engine_get_roi_revision(const live2d_engine_t *engine)
+{
+    return engine ? engine->roi_revision : 0;
+}
+
 void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
                                   uint32_t *hit, uint32_t *miss)
 {
@@ -564,6 +573,7 @@ void live2d_engine_reset_realtime(live2d_engine_t *engine)
     if (!engine || !engine->loaded) {
         return;
     }
+    ++engine->roi_revision;
     PX_LiveRealtimeResetAll(&engine->live);
 }
 
