@@ -29,6 +29,7 @@
 #include "live2d_engine.h"
 #include "live2d_renderer.h"
 #include "profile_benchmark.h"
+#include "l2d_preset.h"
 #include "mbedtls/sha256.h"
 #include "lvgl.h"
 #include "sys_display.h"
@@ -179,14 +180,7 @@ static void choose_render_size(const live2d_engine_info_t *info, int *w, int *h)
 static uint8_t continuous_sample(uint32_t frame_index, uint32_t phase_offset,
                                  uint8_t min_sample, uint8_t max_sample)
 {
-    uint32_t span = (uint32_t)(max_sample - min_sample);
-    if (span == 0) return min_sample;
-
-    uint32_t position = (frame_index + phase_offset) % (span * 2u);
-    if (position <= span) {
-        return (uint8_t)(min_sample + position);
-    }
-    return (uint8_t)(max_sample - (position - span));
+    return l2d_preset_triangle_sample(frame_index, phase_offset, min_sample, max_sample);
 }
 
 /* 五轴每帧都参与同一个 batch；相位错开以覆盖不同组合姿态。 */
@@ -253,23 +247,23 @@ static void render_task(void *arg)
     ESP_LOGI(TAG, "model SHA256=%s", model_sha_hex);
 
     live2d_engine_t *engine = NULL;
-    ret = live2d_engine_create(ENGINE_POOL_BYTES, &engine);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "engine create failed: %s", esp_err_to_name(ret));
+    l2d_status_t st = live2d_engine_create(ENGINE_POOL_BYTES, &engine);
+    if (st != L2D_OK) {
+        ESP_LOGE(TAG, "engine create failed: status=%d", (int)st);
         sys_storage_free_file(model_data);
         vTaskDelete(NULL);
         return;
     }
 
     int64_t load_begin = esp_timer_get_time();
-    ret = live2d_engine_load(engine, model_data, model_size);
+    st = live2d_engine_load(engine, model_data, model_size);
     int64_t load_end = esp_timer_get_time();
 #if !CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
     model_data = NULL;
 #endif
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "model import failed: %s", esp_err_to_name(ret));
+    if (st != L2D_OK) {
+        ESP_LOGE(TAG, "model import failed: status=%d", (int)st);
         if (model_data) sys_storage_free_file(model_data);
         vTaskDelete(NULL);
         return;
@@ -280,7 +274,7 @@ static void render_task(void *arg)
     ESP_LOGI(TAG,
              "model ready id='%.*s' size=%dx%d layers=%d textures=%d animations=%d load=%" PRId64
              "ms pool_free=%u",
-             PX_LIVE_ID_MAX_LEN, info.id, info.width, info.height, info.layer_count,
+             (int)sizeof(info.id), info.id, info.width, info.height, info.layer_count,
              info.texture_count, info.animation_count, (load_end - load_begin) / 1000,
              (unsigned)info.pool_free);
 

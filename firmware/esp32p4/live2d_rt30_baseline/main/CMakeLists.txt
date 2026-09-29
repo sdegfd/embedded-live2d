@@ -26,6 +26,13 @@ execute_process(COMMAND git rev-parse HEAD
 if(NOT L2D_ESP_COMMIT)
     set(L2D_ESP_COMMIT "uncommitted-worktree")
 endif()
+get_filename_component(L2D_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "${L2D_ROOT}/bench/scenarios"
+    "${L2D_ROOT}/src/engine"
+    "${L2D_ROOT}/src/internal"
+    "${L2D_ROOT}/src/internal/pe/core"
+    "${L2D_ROOT}/src/internal/pe/kernel")
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     L2D_ESP_COMMIT="${L2D_ESP_COMMIT}"
     L2D_PC_COMMIT="78fc634")

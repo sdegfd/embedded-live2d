@@ -13,6 +13,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
+#if CONFIG_L2D_PROFILE_VISUAL || CONFIG_L2D_PROFILE_DETAIL
+#include "PX_LiveFramework.h"
+#endif
+#if CONFIG_L2D_PROFILE_VISUAL
+#include "live2d_engine_diag.h"
+#endif
 
 #ifndef L2D_ESP_COMMIT
 #define L2D_ESP_COMMIT "uncommitted-worktree"
@@ -44,7 +50,11 @@
 
 static const char *TAG = "l2d_profile";
 static int active_backend;
-static constexpr int WARMUP = 5, MEASURE = 50, ROUNDS = 1, FRAME_US = 33333;
+#include "l2d_preset.h"
+static constexpr int WARMUP = L2D_PRESET_SHORT_WARMUP;
+static constexpr int MEASURE = L2D_PRESET_SHORT_MEASURE;
+static constexpr int ROUNDS = L2D_PRESET_SHORT_ROUNDS;
+static constexpr int FRAME_US = L2D_PRESET_SHORT_DEADLINE_US;
 
 #if CONFIG_L2D_PROFILE_STAGE == 2
 /* Both PPA clients stay registered; switching only selects existing paths. */
@@ -161,7 +171,7 @@ static void run_correctness(live2d_engine_t *engine, live2d_renderer_t *renderer
     live2d_engine_reset_realtime(engine);
     emit_correctness(engine, renderer, buffer, flush, "RELOAD_BEFORE", true);
     bool reloaded = model_data && model_size &&
-                    live2d_engine_load(engine, model_data, model_size) == ESP_OK &&
+                    live2d_engine_load(engine, model_data, model_size) == L2D_OK &&
                     live2d_engine_enter_realtime(engine);
     if (reloaded) live2d_engine_reset_realtime(engine);
     emit_correctness(engine, renderer, buffer, flush, "RELOAD_STATIC", reloaded);

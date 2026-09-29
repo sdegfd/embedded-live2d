@@ -14,6 +14,9 @@
 
 #include "live2d_renderer.h"
 
+#include "l2d/l2d_image.h"
+#include "l2d/l2d_roi.h"
+
 #include <string.h>
 #include <math.h>
 
@@ -25,32 +28,18 @@
 static const char *TAG = "live2d_renderer";
 
 #if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
-static live2d_roi_t live2d_renderer_geometry_roi(const PX_LiveGeometryBounds *b, int w, int h)
+static live2d_roi_t live2d_renderer_geometry_roi(const l2d_geometry_bounds_t *b, int w, int h)
 {
-    live2d_roi_t r = {0};
-    if (!b->valid || b->unsafe || w <= 0 || h <= 0) return r;
-    /* Exclusive right/bottom bounds. Two pixels cover raster edge rounding. */
-    float left = floorf(b->min_x) - 2.f, top = floorf(b->min_y) - 2.f;
-    float right = ceilf(b->max_x) + 3.f, bottom = ceilf(b->max_y) + 3.f;
-    if (right <= 0 || bottom <= 0 || left >= w || top >= h) return r;
-    r.x = left < 0 ? 0 : (int)left;
-    r.y = top < 0 ? 0 : (int)top;
-    int x1 = right > w ? w : (int)right;
-    int y1 = bottom > h ? h : (int)bottom;
-    r.w = x1 - r.x; r.h = y1 - r.y;
-    r.valid = r.w > 0 && r.h > 0;
+    l2d_roi_rect_t src = l2d_roi_from_geometry(b, w, h);
+    live2d_roi_t r = {src.x, src.y, src.w, src.h, src.valid != 0};
     return r;
 }
 
 static live2d_roi_t live2d_renderer_union_roi(live2d_roi_t a, live2d_roi_t b)
 {
-    if (!a.valid) return b;
-    if (!b.valid) return a;
-    int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
-    int ax1 = a.x + a.w, bx1 = b.x + b.w;
-    int ay1 = a.y + a.h, by1 = b.y + b.h;
-    int x1 = ax1 > bx1 ? ax1 : bx1, y1 = ay1 > by1 ? ay1 : by1;
-    return (live2d_roi_t){.x=x0,.y=y0,.w=x1-x0,.h=y1-y0,.valid=true};
+    l2d_roi_rect_t u = l2d_roi_union((l2d_roi_rect_t){a.x, a.y, a.w, a.h, a.valid},
+                                    (l2d_roi_rect_t){b.x, b.y, b.w, b.h, b.valid});
+    return (live2d_roi_t){u.x, u.y, u.w, u.h, u.valid != 0};
 }
 #endif
 
@@ -202,23 +191,8 @@ static bool live2d_renderer_ppa_requires_identity_validation(const live2d_render
 /** 将 PainterEngine 的预乘 ARGB8888 颜色值转换为 RGB565。 */
 static inline uint16_t live2d_renderer_rgb565(px_color c)
 {
-#if defined(PX_COLOR_FORMAT_BGRA)
-    /* ESP32-P4 little-endian BGRA: one aligned 32-bit load is cheaper than
-     * three independent byte loads from PSRAM.  Alpha occupies bits 31:24
-     * and is intentionally ignored because PainterEngine already composed RGB. */
-    uint32_t bgra = c._argb.ucolor;
-    return (uint16_t)(((bgra >> 8) & 0xF800u) |
-                      ((bgra >> 5) & 0x07E0u) |
-                      ((bgra >> 3) & 0x001Fu));
-#else
-    uint32_t r = c._argb.r;
-    uint32_t g = c._argb.g;
-    uint32_t b = c._argb.b;
-
-    /* PainterEngine 已在写入透明画布时把 RGB 与 Alpha 合成；这里若再次乘
-     * Alpha 会把半透明轮廓压暗两次，造成明显的黑锐边。 */
-    return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
-#endif
+    /* Same formula as l2d_bgra8888_to_rgb565. Alpha is not applied again. */
+    return l2d_bgra8888_to_rgb565(c._argb.ucolor);
 }
 
 /** 软件方式将ARGB8888渲染缓冲区逐像素转换为RGB565帧缓冲区。 */
@@ -584,10 +558,12 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
     /* 阶段1：清空 ARGB8888 透明表面并调用 PainterEngine Live2D 渲染管线 */
     live2d_renderer_clear_dirty_rect(renderer);
     int64_t engine_begin_us = esp_timer_get_time();
-    live2d_engine_render(engine, &renderer->render_surface, x, y, PX_ALIGN_LEFTTOP, elapsed_ms);
+    live2d_engine_render(engine, renderer->render_surface.surfaceBuffer,
+                         renderer->render_surface.width, renderer->render_surface.height,
+                         x, y, elapsed_ms);
 
 #if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
-    PX_LiveGeometryBounds geometry;
+    l2d_geometry_bounds_t geometry;
     live2d_engine_get_geometry_bounds(engine, &geometry);
     renderer->roi_previous = renderer->roi_current;
     renderer->roi_current = live2d_renderer_geometry_roi(&geometry,

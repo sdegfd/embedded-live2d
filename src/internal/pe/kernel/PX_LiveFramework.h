@@ -252,7 +252,7 @@ px_void PX_LiveFrameworkDetailGetFrame(PX_LiveFrameworkDetailFrame *out);
 px_void PX_LiveFrameworkGetGeometryBounds(const PX_LiveFramework *plive,
                                           PX_LiveGeometryBounds *out);
 
-#if CONFIG_L2D_PROFILE_VISUAL
+#if L2D_CFG_PROFILE_VISUAL
 typedef struct {
 	px_dword physical_ran;
 	px_dword history_valid;
@@ -355,6 +355,8 @@ typedef struct _PX_LiveFramework
 	px_int32 reg_elapsed;                    /**< 已播放时间（ms） */
 	px_int32 reg_animation;                  /**< 当前播放动画索引 */
 	px_int32 reg_bp;                         /**< 断点寄存器 */
+	px_dword trigCacheHit;                  /**< Hits for the last update on this instance */
+	px_dword trigCacheMiss;                 /**< Misses for the last update on this instance */
 }PX_LiveFramework;
 
 
@@ -377,7 +379,7 @@ px_void PX_LiveFrameworkStop(PX_LiveFramework *plive);
 /** 按 animationMode 推进一帧状态：TIMELINE 走 VM，REALTIME30 走 RT30 求值，NEUTRAL 仅松弛。
  *  RenderCurrent 不推进状态；两者分离便于实时模式下参数与帧率解耦。 */
 px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed);
-px_void PX_LiveFrameworkGetTrigCacheFrame(px_dword *hit, px_dword *miss);
+px_void PX_LiveFrameworkGetTrigCacheFrame(const PX_LiveFramework *plive, px_dword *hit, px_dword *miss);
 /** 仅渲染当前姿态，不推进动画状态。保留 ESP 的 renderScale/快速采样/sin-cos 缓存路径。 */
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_int x,px_int y,PX_ALIGN refPoint);
 

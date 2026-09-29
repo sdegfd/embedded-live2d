@@ -42,5 +42,8 @@ Desktop.ini
 # 本机编辑器设置里有个人工具链路径
 .vscode/settings.json
 
+# ESP32-S3 例程由 idf.py set-target 生成。跟踪的是 sdkconfig.defaults。
+/examples/esp32s3/sdkconfig
+
 # 旧的 PainterEngine_make 整包，约 450MB，不是当前工程
 /PainterEngine_make/

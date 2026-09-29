@@ -8,11 +8,7 @@
 #ifndef __PX_TYPEDEF_H
 #define __PX_TYPEDEF_H
 
-#if defined(__has_include)
-#if __has_include("sdkconfig.h")
-#include "sdkconfig.h"
-#endif
-#endif
+#include "l2d_config.h"
 
 #include	"PX_MathTable.h"
 
@@ -572,7 +568,7 @@ px_float PX_tan_radian(px_float radian);
 px_float PX_sin_angle(px_float angle);
 px_float PX_cos_angle(px_float angle);
 
-#if CONFIG_L2D_PROFILE_VISUAL
+#if L2D_CFG_PROFILE_VISUAL
 #define PX_VISUAL_SCOPE_OTHER 0
 #define PX_VISUAL_SCOPE_TRANSFORM 1
 #define PX_VISUAL_SCOPE_FINAL 2

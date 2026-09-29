@@ -18,6 +18,7 @@
 
 #include "driver/ppa.h"
 #include "esp_err.h"
+#include "PX_Surface.h"
 #include "live2d_engine.h"
 #include "sys_display_buffer.h"
 

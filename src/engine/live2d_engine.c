@@ -14,11 +14,12 @@
 
 #include "live2d_engine.h"
 
+#include "PX_LiveFramework.h"
+#include "l2d_pe_port.h"
+#include "live2d_engine_diag.h"
+
 #include <stdlib.h>
 #include <string.h>
-
-#include "esp_heap_caps.h"
-#include "esp_log.h"
 
 /* ── 内部数据结构 ────────────────────────────────── */
 
@@ -33,6 +34,9 @@ struct live2d_engine {
 };
 
 static const char *TAG = "live2d_engine";
+
+_Static_assert(LIVE2D_ENGINE_ID_MAX == PX_LIVE_ID_MAX_LEN, "id capacity");
+_Static_assert(sizeof(((live2d_engine_frame_profile_t *)0)->poseUs) == sizeof(px_dword), "profile unit");
 
 /* ── 内部辅助函数 ────────────────────────────────── */
 
@@ -173,37 +177,37 @@ static void live2d_engine_fast_pixel_shader(px_surface *surface, px_int x, px_in
  *
  * @param pool_size   内存池大小（字节），通常建议 4~8 MB
  * @param out_engine  输出参数，指向新创建的引擎实例指针
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；ESP_ERR_NO_MEM 内存不足
+ * @return L2D_OK 成功；L2D_ERR_INVALID_ARG 参数无效；L2D_ERR_NO_MEM 内存不足
  */
-esp_err_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine)
+l2d_status_t live2d_engine_create(size_t pool_size, live2d_engine_t **out_engine)
 {
     if (!out_engine || pool_size == 0) {
-        return ESP_ERR_INVALID_ARG;
+        return L2D_ERR_INVALID_ARG;
     }
 
-    live2d_engine_t *engine = calloc(1, sizeof(*engine));
+    live2d_engine_t *engine = l2d_port_alloc(sizeof(void *), sizeof(*engine));
     if (!engine) {
-        ESP_LOGE(TAG, "Failed to allocate engine context");
-        return ESP_ERR_NO_MEM;
+        L2D_LOGE(TAG, "Failed to allocate engine context");
+        return L2D_ERR_NO_MEM;
     }
+    memset(engine, 0, sizeof(*engine));
 
-    engine->pool_mem = heap_caps_aligned_alloc(64, pool_size,
-                                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    engine->pool_mem = l2d_port_alloc(64, pool_size);
     if (!engine->pool_mem) {
-        ESP_LOGE(TAG, "Failed to allocate Live2D memory pool in PSRAM, need %u bytes",
+        L2D_LOGE(TAG, "Failed to allocate Live2D memory pool, need %u bytes",
                  (unsigned)pool_size);
-        free(engine);
-        return ESP_ERR_NO_MEM;
+        l2d_port_free(engine);
+        return L2D_ERR_NO_MEM;
     }
 
     engine->pool_size = pool_size;
     engine->pool = MP_Create(engine->pool_mem, (px_uint)pool_size);
     MP_NoCatchError(&engine->pool);
 
-    ESP_LOGI(TAG, "Live2D engine pool allocated in PSRAM: %u bytes",
+    L2D_LOGI(TAG, "Live2D engine pool allocated in PSRAM: %u bytes",
              (unsigned)pool_size);
     *out_engine = engine;
-    return ESP_OK;
+    return L2D_OK;
 }
 
 /** 销毁Live2D引擎实例，释放PSRAM内存池和上下文。
@@ -220,9 +224,9 @@ void live2d_engine_destroy(live2d_engine_t *engine)
         engine->loaded = false;
     }
     if (engine->pool_mem) {
-        heap_caps_free(engine->pool_mem);
+        l2d_port_free(engine->pool_mem);
     }
-    free(engine);
+    l2d_port_free(engine);
 }
 
 /** 从内存数据加载Live2D模型，导入到引擎中并配置渲染参数。
@@ -233,12 +237,12 @@ void live2d_engine_destroy(live2d_engine_t *engine)
  * @param engine      引擎实例
  * @param model_data  模型二进制数据指针
  * @param model_size  模型数据大小（字节）
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效；ESP_FAIL 导入失败（通常因内存池不足）
+ * @return L2D_OK 成功；L2D_ERR_INVALID_ARG 参数无效；L2D_ERR_FAIL 导入失败（通常因内存池不足）
  */
-esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, size_t model_size)
+l2d_status_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, size_t model_size)
 {
     if (!engine || !model_data || model_size == 0) {
-        return ESP_ERR_INVALID_ARG;
+        return L2D_ERR_INVALID_ARG;
     }
     ++engine->roi_revision;
 
@@ -249,14 +253,14 @@ esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, si
         MP_NoCatchError(&engine->pool);
     }
 
-    ESP_LOGI(TAG, "Importing PainterEngine Live2D model, file size=%u bytes, pool free=%u bytes",
+    L2D_LOGI(TAG, "Importing PainterEngine Live2D model, file size=%u bytes, pool free=%u bytes",
              (unsigned)model_size, (unsigned)engine->pool.FreeSize);
 
     if (!PX_LiveFrameworkImport(&engine->pool, &engine->live, (px_void *)model_data,
                                 (px_int)model_size)) {
-        ESP_LOGE(TAG, "PX_LiveFrameworkImport failed, pool free=%u bytes",
+        L2D_LOGE(TAG, "PX_LiveFrameworkImport failed, pool free=%u bytes",
                  (unsigned)engine->pool.FreeSize);
-        return ESP_FAIL;
+        return L2D_ERR_FAIL;
     }
 
     engine->loaded = true;
@@ -271,22 +275,22 @@ esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, si
     engine->live.fastNearestSampling = PX_TRUE;
     engine->live.renderScale = 1.0f;
 
-    ESP_LOGI(TAG,
+    L2D_LOGI(TAG,
              "Model loaded: id='%.*s', size=%dx%d, layers=%d, textures=%d, animations=%d, pool free=%u bytes",
              PX_LIVE_ID_MAX_LEN, engine->live.id, engine->live.width, engine->live.height,
              engine->live.layers.size, engine->live.livetextures.size,
              engine->live.liveAnimations.size, (unsigned)engine->pool.FreeSize);
-    ESP_LOGI(TAG, "Using nearest-neighbor pixel shader for ESP renderer");
+    L2D_LOGI(TAG, "Using nearest-neighbor pixel shader for ESP renderer");
 
     /* 报告 RT30 实时轴：必须明确打印轴数与轴 ID，防止静默忽略 RT30 尾部 */
     {
         int axis_count = (int)PX_LiveRealtimeGetAxisCount(&engine->live);
         int h;
-        ESP_LOGI(TAG, "RT30 realtime axes: %d", axis_count);
+        L2D_LOGI(TAG, "RT30 realtime axes: %d", axis_count);
         for (h = 0; h < axis_count; h++) {
             PX_LiveRealtimeAxis *axis = PX_LiveRealtimeGetAxis(&engine->live, h);
             if (axis) {
-                ESP_LOGI(TAG,
+                L2D_LOGI(TAG,
                          "  axis[%d] id='%.*s' default=%u middle=%u bindings=%u sampleBytes=%u stride=%u vidx=%u Q(coord=%u rot=%u stretch=%u)",
                          h, PX_LIVE_REALTIME_AXIS_ID_MAX_LEN, axis->id,
                          axis->defaultSampleIndex, axis->middleKeyIndex,
@@ -301,7 +305,7 @@ esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, si
                             ? PX_VECTORAT(PX_LiveLayer, &engine->live.layers,
                                           binding->layerIndex)
                             : NULL;
-                    ESP_LOGI(TAG,
+                    L2D_LOGI(TAG,
                              "    binding[%d] layer=%u id='%.*s' mask=0x%04x vertices=%u sample_offset=%u",
                              b, binding->layerIndex, PX_LIVE_ID_MAX_LEN,
                              layer ? layer->id : "<invalid>", binding->propertyMask,
@@ -312,7 +316,7 @@ esp_err_t live2d_engine_load(live2d_engine_t *engine, const void *model_data, si
     }
 
     live2d_engine_play_default(engine);
-    return ESP_OK;
+    return L2D_OK;
 }
 
 /** 设置内部渲染缩放比例，限制在[0.1, 1.0]之间。
@@ -329,7 +333,7 @@ void live2d_engine_set_render_scale(live2d_engine_t *engine, float render_scale)
     float next_scale=live2d_engine_clamp_render_scale(render_scale);
     if (engine->live.renderScale != next_scale) ++engine->roi_revision;
     engine->live.renderScale = next_scale;
-    ESP_LOGI(TAG, "Internal render scale set to %.3f", (double)engine->live.renderScale);
+    L2D_LOGI(TAG, "Internal render scale set to %.3f", (double)engine->live.renderScale);
 }
 
 /** 播放默认动画：查找第一个可播放的动画，若无则渲染静态模型。
@@ -345,7 +349,7 @@ void live2d_engine_play_default(live2d_engine_t *engine)
     int default_animation = live2d_engine_find_next_playable_animation(engine, 0);
     if (default_animation >= 0) {
         if (live2d_engine_play_index(engine, default_animation)) {
-            ESP_LOGI(TAG, "Playing default animation index %d/%d",
+            L2D_LOGI(TAG, "Playing default animation index %d/%d",
                      default_animation + 1, engine->live.liveAnimations.size);
             return;
         }
@@ -353,7 +357,7 @@ void live2d_engine_play_default(live2d_engine_t *engine)
 
     PX_LiveFrameworkReset(&engine->live);
     PX_LiveFrameworkPlay(&engine->live);
-    ESP_LOGI(TAG, "No animation frame list found, rendering static model continuously");
+    L2D_LOGI(TAG, "No animation frame list found, rendering static model continuously");
 }
 
 bool live2d_engine_is_animation_finished(const live2d_engine_t *engine)
@@ -366,7 +370,7 @@ void live2d_engine_play_default_index(live2d_engine_t *engine, int animation_ind
 {
     /* 播放指定 index 作为默认动画（如空闲动画 11）；失败回退到首个可播放动画。 */
     if (live2d_engine_play_index(engine, animation_index)) {
-        ESP_LOGI(TAG, "Playing default animation index %d/%d",
+        L2D_LOGI(TAG, "Playing default animation index %d/%d",
                  animation_index + 1,
                  engine->live.liveAnimations.size);
         return;
@@ -409,10 +413,10 @@ bool live2d_engine_cycle_animation_if_needed(live2d_engine_t *engine)
     }
 
     if (next_animation == current_animation) {
-        ESP_LOGI(TAG, "Looping animation index %d/%d",
+        L2D_LOGI(TAG, "Looping animation index %d/%d",
                  next_animation + 1, animation_count);
     } else {
-        ESP_LOGI(TAG, "Switching animation %d -> %d/%d",
+        L2D_LOGI(TAG, "Switching animation %d -> %d/%d",
                  current_animation + 1, next_animation + 1, animation_count);
     }
     return true;
@@ -445,13 +449,48 @@ int live2d_engine_get_current_animation_index(const live2d_engine_t *engine)
  * @param align       对齐方式（通常为 PX_ALIGN_LEFTTOP）
  * @param elapsed_ms  距上次渲染的毫秒数，用于驱动动画进度
  */
-void live2d_engine_render(live2d_engine_t *engine, px_surface *surface, int x, int y,
-                          PX_ALIGN align, uint32_t elapsed_ms)
+static int live2d_engine_bind_surface(px_surface *surface, void *pixels, int width, int height)
 {
-    if (!engine || !engine->loaded || !surface) {
+    if (!surface || !pixels || width <= 0 || height <= 0) {
+        return 0;
+    }
+    memset(surface, 0, sizeof(*surface));
+    surface->surfaceBuffer = (px_color *)pixels;
+    surface->width = width;
+    surface->height = height;
+    surface->limit_left = 0;
+    surface->limit_top = 0;
+    surface->limit_right = width - 1;
+    surface->limit_bottom = height - 1;
+    return 1;
+}
+
+void live2d_engine_render(live2d_engine_t *engine, void *pixels, int width, int height,
+                          int x, int y, uint32_t elapsed_ms)
+{
+    px_surface surface;
+    if (!engine || !engine->loaded || !live2d_engine_bind_surface(&surface, pixels, width, height)) {
         return;
     }
-    PX_LiveFrameworkRender(surface, &engine->live, x, y, align, elapsed_ms);
+    PX_LiveFrameworkRender(&surface, &engine->live, x, y, PX_ALIGN_LEFTTOP, elapsed_ms);
+}
+
+void live2d_engine_update(live2d_engine_t *engine, uint32_t elapsed_ms)
+{
+    if (!engine || !engine->loaded) {
+        return;
+    }
+    PX_LiveFrameworkUpdate(&engine->live, elapsed_ms);
+}
+
+void live2d_engine_render_current(live2d_engine_t *engine, void *pixels, int width, int height,
+                                  int x, int y)
+{
+    px_surface surface;
+    if (!engine || !engine->loaded || !live2d_engine_bind_surface(&surface, pixels, width, height)) {
+        return;
+    }
+    PX_LiveFrameworkRenderCurrent(&surface, &engine->live, x, y, PX_ALIGN_LEFTTOP);
 }
 
 void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
@@ -459,13 +498,34 @@ void live2d_engine_get_frame_profile(const live2d_engine_t *engine,
 {
     if (!out_profile) return;
     memset(out_profile, 0, sizeof(*out_profile));
-    if (engine && engine->loaded) *out_profile = engine->live.frameProfile;
+    if (engine && engine->loaded) {
+        const PX_LiveFrameworkFrameProfile *src = &engine->live.frameProfile;
+        out_profile->poseUs = src->poseUs;
+        out_profile->physicalUs = src->physicalUs;
+        out_profile->keypointUs = src->keypointUs;
+        out_profile->visualTransformUs = src->visualTransformUs;
+        out_profile->stretchUs = src->stretchUs;
+        out_profile->vertexTransformUs = src->vertexTransformUs;
+        out_profile->uvUpdateUs = src->uvUpdateUs;
+        out_profile->sortUs = src->sortUs;
+        out_profile->drawUs = src->drawUs;
+    }
 }
 
 void live2d_engine_get_geometry_bounds(const live2d_engine_t *engine,
-                                       PX_LiveGeometryBounds *out)
+                                       l2d_geometry_bounds_t *out)
 {
-    PX_LiveFrameworkGetGeometryBounds(engine && engine->loaded ? &engine->live : NULL, out);
+    PX_LiveGeometryBounds bounds;
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    memset(&bounds, 0, sizeof(bounds));
+    PX_LiveFrameworkGetGeometryBounds(engine && engine->loaded ? &engine->live : NULL, &bounds);
+    out->min_x = bounds.min_x;
+    out->min_y = bounds.min_y;
+    out->max_x = bounds.max_x;
+    out->max_y = bounds.max_y;
+    out->valid = bounds.valid ? 1 : 0;
+    out->unsafe = bounds.unsafe ? 1 : 0;
 }
 
 uint32_t live2d_engine_get_roi_revision(const live2d_engine_t *engine)
@@ -477,13 +537,12 @@ void live2d_engine_get_trig_cache(const live2d_engine_t *engine,
                                   uint32_t *hit, uint32_t *miss)
 {
     px_dword h = 0, m = 0;
-    (void)engine;
-    PX_LiveFrameworkGetTrigCacheFrame(&h, &m);
+    PX_LiveFrameworkGetTrigCacheFrame(engine && engine->loaded ? &engine->live : NULL, &h, &m);
     if (hit) *hit = (uint32_t)h;
     if (miss) *miss = (uint32_t)m;
 }
 
-#if CONFIG_L2D_PROFILE_VISUAL
+#if L2D_CFG_PROFILE_VISUAL
 void live2d_engine_visual_diag_copy(live2d_engine_t *engine, PX_LiveVisualDiagFrame *out)
 {
     if (!out) return;

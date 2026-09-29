@@ -1099,7 +1099,7 @@ px_void PX_LiveRealtimeResetAll(PX_LiveFramework *plive)
 	{
 		return;
 	}
-#if CONFIG_L2D_PROFILE_VISUAL
+#if L2D_CFG_PROFILE_VISUAL
 	PX_LiveFrameworkVisualDiagInvalidate();
 #endif
 	for (i=0;i<plive->layers.size;i++)

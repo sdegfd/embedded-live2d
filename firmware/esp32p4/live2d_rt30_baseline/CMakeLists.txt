@@ -12,10 +12,12 @@ cmake_minimum_required(VERSION 3.16)
 # this project-local compatibility value until the managed components fix it.
 set(ENV{ESP_IDF_VERSION} "5.5")
 
-# 额外组件搜索路径：components 与 components/sys
+# Shared runtime lives at the repo root. The board package stays in this project.
+get_filename_component(L2D_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(EXTRA_COMPONENT_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/components
-    ${CMAKE_CURRENT_SOURCE_DIR}/components/sys)
+    ${CMAKE_CURRENT_SOURCE_DIR}/components/sys
+    ${L2D_ROOT}/ports/esp_idf/components)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(live2d_rt30_baseline)
