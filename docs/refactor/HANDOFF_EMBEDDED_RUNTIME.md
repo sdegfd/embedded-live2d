@@ -2,7 +2,7 @@
 
 Date: 2026-09-29. Branch: `refactor/embedded-runtime`. Parent: `adbc38aafe3cd5b92ee040dc446f17394e1bbda8`.
 
-Runtime commit: `42b8aa5979d30a01d3f8e946e88388e74b4218b0`. This handoff is the following docs commit. `git log --oneline adbc38aa..HEAD` lists both. Nothing was pushed.
+Runtime commit: `42b8aa5979d30a01d3f8e946e88388e74b4218b0`. Docs commit: `2555b0d`. Both are on `origin/refactor/embedded-runtime` at `github.com:sdegfd/live2d.git`. `main` was not updated.
 
 ## What the branch contains
 
