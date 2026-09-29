@@ -348,7 +348,9 @@ static void render_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "PPA mode: hardware transparent clear + hardware ARGB->RGB565 convert");
+    ESP_LOGI(TAG, "render backends: clear=%s convert=%s",
+             renderer.use_ppa_clear ? "PPA" : "CPU",
+             renderer.use_ppa_convert ? "PPA" : "CPU");
     log_heap("ready");
 
     /* 渲染任务中的多行周期日志会同步占用 UART，并直接制造 80~95 ms 假慢帧。
@@ -359,7 +361,7 @@ static void render_task(void *arg)
     esp_log_level_set("sys_monitor", ESP_LOG_WARN);
     ESP_LOGI(TAG, "continuous RT30 drive active on %d model axes", axis_count);
 
-#if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL
+#if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS
     l2d_axis_handles_t handles = {h_eye_l, h_eye_r, h_neck, h_face, h_mouth};
     l2d_run_profile_suite(engine, &renderer, &buffer, &flush, handles,
                           load_end - load_begin, model_sha_hex, model_size);

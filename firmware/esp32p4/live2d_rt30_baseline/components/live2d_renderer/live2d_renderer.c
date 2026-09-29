@@ -423,8 +423,9 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
         ESP_LOGI(TAG, "CPU RGB565 conversion selected by config");
 #endif
         ESP_LOGI(TAG,
-                 "Renderer initialized: %dx%d ARGB8888 -> RGB565 via PPA SRM, rgb_swap=%d, byte_swap=%d, source block=%dx%d@(%d,%d)",
+                 "Renderer initialized: %dx%d ARGB8888 -> RGB565 via %s, rgb_swap=%d, byte_swap=%d, source block=%dx%d@(%d,%d)",
                  buffer->width, buffer->height,
+                 renderer->use_ppa_convert ? "PPA SRM" : "CPU",
                  renderer->ppa_rgb_swap, renderer->ppa_byte_swap,
                  renderer->source_block_w, renderer->source_block_h,
                  renderer->source_block_x, renderer->source_block_y);
