@@ -1,6 +1,6 @@
 /**
  * Public types for the Live2D embedded runtime.
- * No ESP-IDF, FreeRTOS, LVGL, Windows, or PainterEngine headers.
+ * No platform SDK, RTOS, UI toolkit, or editor-engine headers.
  *
  * Pixel contract for L2D_PIXEL_BGRA8888_LE:
  *   memory bytes [B, G, R, A]

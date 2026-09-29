@@ -3,7 +3,7 @@
  * @brief Live2D 渲染器模块（待集成）
  *
  * ── 渲染管线位置 ──
- *   PainterEngine -> live2d_engine（动画/模型） -> live2d_renderer（格式转换） -> 显示缓冲区
+ *   l2d instance（动画/模型） -> live2d_renderer（P4 格式转换） -> 显示缓冲区
  *
  * 将 Live2D 引擎输出的 ARGB8888 像素转换为显示缓冲区所需的 RGB565 格式，
  * 支持 PPA（像素处理加速器）硬件加速转换，并自动选择最佳配置参数。
@@ -18,23 +18,17 @@
 
 #include "driver/ppa.h"
 #include "esp_err.h"
-#include "PX_Surface.h"
-#include "live2d_engine.h"
+#include "l2d/l2d.h"
 #include "sys_display_buffer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct {
-    int x, y, w, h;
-    bool valid;
-} live2d_roi_t;
-
 /** Live2D 渲染器结构体。管理渲染缓冲区和 ARGB8888 -> RGB565 格式转换。 */
 typedef struct {
     sys_display_buffer_t *buffer;          /**< 显示缓冲区指针（含 ARGB8888 渲染缓冲和 RGB565 帧缓冲） */
-    px_surface render_surface;             /**< PainterEngine 渲染目标 surface（包装 buffer->render_argb8888） */
+    l2d_output_t *output;                  /**< Conversion history for this display target. */
     uint32_t rendered_frames;              /**< 已渲染帧数计数 */
     uint32_t last_render_us;               /**< 上一帧渲染耗时（微秒） */
     uint32_t last_clear_us;                /**< 上一帧透明清屏耗时（微秒） */
@@ -64,13 +58,12 @@ typedef struct {
     int dirty_y;                           /**< 上一帧透明清屏/缓存同步建议区域 Y */
     int dirty_w;                           /**< 上一帧透明清屏/缓存同步建议区域宽度 */
     int dirty_h;                           /**< 上一帧透明清屏/缓存同步建议区域高度 */
-    live2d_roi_t roi_current, roi_previous, roi_union;
-    bool roi_force_full;
-    bool roi_history_ready;
-    uint32_t roi_engine_revision;
-    int roi_canvas_w, roi_canvas_h;
-    const void *roi_rgb565_buffer;
-    bool roi_last_ppa_backend, roi_last_conversion_enabled;
+    /* Last l2d_output_plan result. The next frame does not read these to
+     * decide a rectangle; l2d_output owns that history. */
+    l2d_roi_rect_t plan_current;
+    l2d_roi_rect_t plan_previous;
+    l2d_roi_rect_t plan_conversion;
+    int plan_force_full;
     ppa_client_handle_t ppa_srm_handle;    /**< PPA SRM（缩放/旋转/镜像）硬件句柄 */
     ppa_client_handle_t ppa_fill_handle;   /**< PPA FILL 透明清屏硬件句柄 */
     bool convert_rgb565;                   /**< 是否需要输出 RGB565 帧缓冲（overlay 路径可关闭） */
@@ -107,11 +100,11 @@ void live2d_renderer_set_rgb565_conversion(live2d_renderer_t *renderer, bool ena
  * 自动管理 PPA 配置选择（首次帧特殊处理）和性能统计。
  *
  * @param renderer   渲染器实例
- * @param engine     Live2D 引擎实例
+ * @param instance   Live2D playback instance
  * @param elapsed_ms 距上次渲染的毫秒数，用于驱动动画
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效
  */
-esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engine_t *engine,
+esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance_t *instance,
                                        uint32_t elapsed_ms);
 
 #ifdef __cplusplus

@@ -1,6 +1,7 @@
 #include "l2d/l2d.h"
 
 #include "live2d_engine.h"
+#include "live2d_engine_internal.h"
 #include "l2d_pe_port.h"
 
 #include <string.h>
@@ -120,6 +121,78 @@ bool l2d_instance_set_axis_position(l2d_instance_t *instance, int handle, float 
 {
     return instance &&
            live2d_engine_set_axis_position(instance->engine, handle, position, weight_q15);
+}
+
+bool l2d_instance_set_axis_sample(l2d_instance_t *instance, int handle, uint8_t sample,
+                                  uint16_t weight_q15)
+{
+    return instance && live2d_engine_set_axis_sample(instance->engine, handle, sample, weight_q15);
+}
+
+bool l2d_instance_set_axes_batch(l2d_instance_t *instance, const l2d_axis_state_t *states,
+                                 size_t count)
+{
+    live2d_axis_state_t tmp[64];
+    size_t i;
+    if (!instance || (count > 0 && !states) || count > 64) {
+        return false;
+    }
+    for (i = 0; i < count; ++i) {
+        tmp[i].handle = states[i].handle;
+        tmp[i].sample = states[i].sample;
+        tmp[i].weight_q15 = states[i].weight_q15;
+    }
+    return live2d_engine_set_axes_batch(instance->engine, tmp, count);
+}
+
+void l2d_instance_set_render_scale(l2d_instance_t *instance, float render_scale)
+{
+    if (instance) {
+        live2d_engine_set_render_scale(instance->engine, render_scale);
+    }
+}
+
+int l2d_instance_axis_count(const l2d_instance_t *instance)
+{
+    return instance ? live2d_engine_get_realtime_axis_count(instance->engine) : 0;
+}
+
+void l2d_instance_rt30_stats(l2d_instance_t *instance, l2d_rt30_stats_t *out)
+{
+    live2d_realtime_stats_t stats;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!instance) {
+        return;
+    }
+    live2d_engine_get_realtime_stats(instance->engine, &stats);
+    out->axis_count = stats.axis_count;
+    out->static_bytes = stats.static_bytes;
+    out->runtime_bytes = stats.runtime_bytes;
+    out->selected_sample_bytes = stats.selected_sample_bytes;
+}
+
+void l2d_instance_mesh_counts(const l2d_instance_t *instance, l2d_mesh_counts_t *out)
+{
+    live2d_engine_geometry_t geometry;
+    if (!out) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (!instance) {
+        return;
+    }
+    live2d_engine_get_geometry(instance->engine, &geometry);
+    out->vertices = geometry.vertices;
+    out->triangles = geometry.triangles;
+    out->texture_pixels = geometry.texture_pixels;
+}
+
+live2d_engine_t *l2d_instance_internal_engine(l2d_instance_t *instance)
+{
+    return instance ? instance->engine : NULL;
 }
 
 void l2d_instance_update(l2d_instance_t *instance, uint32_t elapsed_ms)

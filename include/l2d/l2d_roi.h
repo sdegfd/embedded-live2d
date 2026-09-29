@@ -53,6 +53,10 @@ l2d_status_t l2d_output_plan(const l2d_output_t *output, const l2d_output_view_t
 void l2d_output_commit(l2d_output_t *output, const l2d_output_view_t *view,
                        l2d_roi_rect_t current);
 
+/** Read the committed geometry. history_ready is 0 until a successful commit. */
+void l2d_output_committed(const l2d_output_t *output, l2d_roi_rect_t *current,
+                          int *history_ready);
+
 #ifdef __cplusplus
 }
 #endif

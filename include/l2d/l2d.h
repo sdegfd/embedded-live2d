@@ -1,7 +1,7 @@
 /**
  * Live2D Embedded Runtime.
  * One production runtime for host, ESP32-P4, and ESP32-S3.
- * The public headers do not include ESP-IDF, LVGL, Windows, or PainterEngine.
+ * The public headers do not include a platform SDK or an editor engine.
  */
 #ifndef L2D_H
 #define L2D_H

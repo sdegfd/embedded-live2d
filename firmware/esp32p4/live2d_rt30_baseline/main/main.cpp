@@ -8,8 +8,8 @@
  *   - 实时多轴 Q15 融合产生可见姿态变化
  *   - 模式仲裁/局部变换/ESP 渲染优化路径不崩溃
  *
- * 渲染管线：PainterEngine(RT30) -> live2d_engine -> live2d_renderer -> 显示缓冲区
- * 参数按帧更新，求值由 PX_LiveFrameworkRender 的 REALTIME30 分支统一触发（dirty revision）。
+ * 渲染管线：l2d instance（RT30） -> live2d_renderer -> 显示缓冲区
+ * 参数按帧更新，求值由 playback frame 的 REALTIME30 分支统一触发（dirty revision）。
  */
 
 #include <inttypes.h>
@@ -26,7 +26,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "live2d_engine.h"
+#include "l2d/l2d.h"
 #include "live2d_renderer.h"
 #include "profile_benchmark.h"
 #include "l2d_preset.h"
@@ -162,7 +162,7 @@ static void delay_until_next_frame(int64_t frame_begin_us, int64_t frame_end_us)
     }
 }
 
-static void choose_render_size(const live2d_engine_info_t *info, int *w, int *h)
+static void choose_render_size(const l2d_instance_info_t *info, int *w, int *h)
 {
     int rw = info ? info->width : 0;
     int rh = info ? info->height : 0;
@@ -246,8 +246,8 @@ static void render_task(void *arg)
     model_sha_hex[64] = '\0';
     ESP_LOGI(TAG, "model SHA256=%s", model_sha_hex);
 
-    live2d_engine_t *engine = NULL;
-    l2d_status_t st = live2d_engine_create(ENGINE_POOL_BYTES, &engine);
+    l2d_instance_t *instance = NULL;
+    l2d_status_t st = l2d_instance_create(ENGINE_POOL_BYTES, &instance);
     if (st != L2D_OK) {
         ESP_LOGE(TAG, "engine create failed: status=%d", (int)st);
         sys_storage_free_file(model_data);
@@ -256,7 +256,7 @@ static void render_task(void *arg)
     }
 
     int64_t load_begin = esp_timer_get_time();
-    st = live2d_engine_load(engine, model_data, model_size);
+    st = l2d_instance_load_memory(instance, model_data, model_size);
     int64_t load_end = esp_timer_get_time();
 #if !CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
@@ -269,8 +269,8 @@ static void render_task(void *arg)
         return;
     }
 
-    live2d_engine_info_t info;
-    live2d_engine_get_info(engine, &info);
+    l2d_instance_info_t info;
+    l2d_instance_info(instance, &info);
     ESP_LOGI(TAG,
              "model ready id='%.*s' size=%dx%d layers=%d textures=%d animations=%d load=%" PRId64
              "ms pool_free=%u",
@@ -279,9 +279,9 @@ static void render_task(void *arg)
              (unsigned)info.pool_free);
 
     /* 进入 RT30 实时模式并缓存五轴 handle（初始化时一次性字符串查找） */
-    int axis_count = live2d_engine_get_realtime_axis_count(engine);
-    live2d_realtime_stats_t rt_stats;
-    live2d_engine_get_realtime_stats(engine, &rt_stats);
+    int axis_count = l2d_instance_axis_count(instance);
+    l2d_rt30_stats_t rt_stats;
+    l2d_instance_rt30_stats(instance, &rt_stats);
     ESP_LOGI(TAG, "RT30 axis_count=%d static=%u runtime=%u selectedSample=%u",
              axis_count, (unsigned)rt_stats.static_bytes, (unsigned)rt_stats.runtime_bytes,
              (unsigned)rt_stats.selected_sample_bytes);
@@ -290,16 +290,16 @@ static void render_task(void *arg)
         ESP_LOGE(TAG, "NO RT30 axes! trailer was silently ignored - falling back to static render");
     }
 
-    if (!live2d_engine_enter_realtime(engine)) {
+    if (!l2d_instance_enter_rt30(instance)) {
         ESP_LOGE(TAG, "enter_realtime failed");
         vTaskDelete(NULL);
         return;
     }
-    int h_eye_l = live2d_engine_find_realtime_axis(engine, AXIS_LEFT_EYE);
-    int h_eye_r = live2d_engine_find_realtime_axis(engine, AXIS_RIGHT_EYE);
-    int h_neck  = live2d_engine_find_realtime_axis(engine, AXIS_NECK);
-    int h_face  = live2d_engine_find_realtime_axis(engine, AXIS_FACE);
-    int h_mouth = live2d_engine_find_realtime_axis(engine, AXIS_MOUTH);
+    int h_eye_l = l2d_instance_find_axis(instance, AXIS_LEFT_EYE);
+    int h_eye_r = l2d_instance_find_axis(instance, AXIS_RIGHT_EYE);
+    int h_neck  = l2d_instance_find_axis(instance, AXIS_NECK);
+    int h_face  = l2d_instance_find_axis(instance, AXIS_FACE);
+    int h_mouth = l2d_instance_find_axis(instance, AXIS_MOUTH);
     ESP_LOGI(TAG, "axis handles: left_eye=%d right_eye=%d neck=%d face=%d mouth=%d",
              h_eye_l, h_eye_r, h_neck, h_face, h_mouth);
     if (h_eye_l < 0 || h_eye_r < 0 || h_neck < 0 || h_face < 0) {
@@ -336,7 +336,7 @@ static void render_task(void *arg)
         return;
     }
 
-    live2d_engine_set_render_scale(engine, 1.0f);
+    l2d_instance_set_render_scale(instance, 1.0f);
 
     live2d_renderer_t renderer;
     ret = live2d_renderer_init(&renderer, &buffer);
@@ -352,7 +352,7 @@ static void render_task(void *arg)
 
     /* 渲染任务中的多行周期日志会同步占用 UART，并直接制造 80~95 ms 假慢帧。
      * 保留本入口每秒一行的分阶段汇总，屏蔽其他渲染热路径的 INFO profiling。 */
-    esp_log_level_set("PX_LiveFramework", ESP_LOG_WARN);
+    esp_log_level_set("l2d.runtime", ESP_LOG_WARN);
     esp_log_level_set("live2d_renderer", ESP_LOG_WARN);
     esp_log_level_set("sys_display_flush", ESP_LOG_WARN);
     esp_log_level_set("sys_monitor", ESP_LOG_WARN);
@@ -360,7 +360,7 @@ static void render_task(void *arg)
 
 #if CONFIG_L2D_PROFILE_TIMING || CONFIG_L2D_PROFILE_DETAIL || CONFIG_L2D_PROFILE_CORRECTNESS || CONFIG_L2D_PROFILE_VISUAL
     l2d_axis_handles_t handles = {h_eye_l, h_eye_r, h_neck, h_face, h_mouth};
-    l2d_run_profile_suite(engine, &renderer, &buffer, &flush, handles,
+    l2d_run_profile_suite(instance, &renderer, &buffer, &flush, handles,
                           load_end - load_begin, model_sha_hex, model_data, model_size);
 #if CONFIG_L2D_PROFILE_CORRECTNESS
     sys_storage_free_file(model_data);
@@ -382,18 +382,18 @@ static void render_task(void *arg)
         int64_t axis_begin = esp_timer_get_time();
         uint8_t eye_s, neck_s, face_s, mouth_s;
         compute_axis_samples(drive_frame, &eye_s, &neck_s, &face_s, &mouth_s);
-        live2d_axis_state_t states[5];
+        l2d_axis_state_t states[5];
         states[0].handle = h_eye_l; states[0].sample = eye_s;  states[0].weight_q15 = WEIGHT_FULL_Q15;
         states[1].handle = h_eye_r; states[1].sample = eye_s;  states[1].weight_q15 = WEIGHT_FULL_Q15;
         states[2].handle = h_neck;  states[2].sample = neck_s; states[2].weight_q15 = WEIGHT_FULL_Q15;
         states[3].handle = h_face;  states[3].sample = face_s; states[3].weight_q15 = WEIGHT_FULL_Q15;
         states[4].handle = h_mouth; states[4].sample = mouth_s; states[4].weight_q15 = WEIGHT_FULL_Q15;
-        if (!live2d_engine_set_axes_batch(engine, states, 5)) {
+        if (!l2d_instance_set_axes_batch(instance, states, 5)) {
             stats.batch_failures++;
         }
         int64_t axis_end = esp_timer_get_time();
 
-        ret = live2d_renderer_render_frame(&renderer, engine, elapsed_ms);
+        ret = live2d_renderer_render_frame(&renderer, instance, elapsed_ms);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "render frame failed: %s", esp_err_to_name(ret));
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -408,18 +408,18 @@ static void render_task(void *arg)
         }
 
         int64_t frame_end = esp_timer_get_time();
-        live2d_engine_frame_profile_t profile;
-        live2d_engine_get_frame_profile(engine, &profile);
+        l2d_frame_profile_t profile;
+        l2d_instance_frame_profile(instance, &profile);
         stats.frames++;
         stats.axis_us += (uint32_t)(axis_end - axis_begin);
         stats.render_us += renderer.last_render_us;
         stats.clear_us += renderer.last_clear_us;
         stats.clear_fill_us += renderer.last_clear_fill_us;
         stats.clear_sync_us += renderer.last_clear_sync_us;
-        stats.pose_us += profile.poseUs;
-        stats.physical_us += profile.physicalUs;
-        stats.sort_us += profile.sortUs;
-        stats.draw_us += profile.drawUs;
+        stats.pose_us += profile.pose_us;
+        stats.physical_us += profile.physical_us;
+        stats.sort_us += profile.sort_us;
+        stats.draw_us += profile.draw_us;
         stats.engine_us += renderer.last_engine_us;
         stats.convert_us += renderer.last_convert_us;
         stats.flush_us += (uint32_t)(flush_end - flush_begin);

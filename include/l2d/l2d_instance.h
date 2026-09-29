@@ -15,8 +15,8 @@
  *
  * l2d_instance_update only advances pose. l2d_instance_render_current only
  * draws. Neither reads a clock. l2d_pipeline_frame is the compatible order
- * used by the ESP32-P4 example: one update plus one draw, matching
- * PX_LiveFrameworkRender. Calling render_current does not advance time.
+ * used by the ESP32-P4 example: one update plus one draw.
+ * Calling render_current does not advance time.
  *
  * Steady state: after a successful load, update, render_current, and
  * pipeline_frame do not call the system allocator.
@@ -51,6 +51,26 @@ typedef struct {
     size_t pool_free;
 } l2d_instance_info_t;
 
+/** One RT30 axis write. sample is a key index, not a continuous position. */
+typedef struct {
+    int handle;
+    uint8_t sample;
+    uint16_t weight_q15;
+} l2d_axis_state_t;
+
+typedef struct {
+    uint32_t vertices;
+    uint32_t triangles;
+    uint32_t texture_pixels;
+} l2d_mesh_counts_t;
+
+typedef struct {
+    int axis_count;
+    uint32_t static_bytes;
+    uint32_t runtime_bytes;
+    uint32_t selected_sample_bytes;
+} l2d_rt30_stats_t;
+
 /**
  * pool_bytes is the single arena used for the model and instance state.
  * 16 MiB matches the ESP32-P4 example. Smaller pools fail at load with
@@ -69,6 +89,19 @@ void l2d_instance_reset_rt30(l2d_instance_t *instance);
 int l2d_instance_find_axis(l2d_instance_t *instance, const char *id);
 bool l2d_instance_set_axis_position(l2d_instance_t *instance, int handle,
                                     float position, uint16_t weight_q15);
+bool l2d_instance_set_axis_sample(l2d_instance_t *instance, int handle,
+                                  uint8_t sample, uint16_t weight_q15);
+/**
+ * Validate every handle, then write sample indices without evaluating.
+ * The next update/pipeline_frame evaluates once. count above 64 is rejected.
+ * Does not allocate.
+ */
+bool l2d_instance_set_axes_batch(l2d_instance_t *instance, const l2d_axis_state_t *states,
+                                 size_t count);
+void l2d_instance_set_render_scale(l2d_instance_t *instance, float render_scale);
+int l2d_instance_axis_count(const l2d_instance_t *instance);
+void l2d_instance_rt30_stats(l2d_instance_t *instance, l2d_rt30_stats_t *out);
+void l2d_instance_mesh_counts(const l2d_instance_t *instance, l2d_mesh_counts_t *out);
 
 void l2d_instance_update(l2d_instance_t *instance, uint32_t elapsed_ms);
 l2d_status_t l2d_instance_render_current(l2d_instance_t *instance,

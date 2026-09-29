@@ -1,7 +1,6 @@
 /**
  * Internal playback facade over the shared runtime.
- * P4 application code still calls these functions. They do not include
- * ESP-IDF. PainterEngine types stay in the .c file.
+ * Application code uses include/l2d. PainterEngine types stay in the .c file.
  */
 #ifndef LIVE2D_ENGINE_H
 #define LIVE2D_ENGINE_H

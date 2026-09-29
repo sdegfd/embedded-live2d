@@ -21,7 +21,7 @@
 
 /* ── 性能分析模块 ──────────────────────────────── */
 
-static const char *PX_LIVEFRAMEWORK_PROFILE_TAG = "PX_LiveFramework";
+static const char *PX_LIVEFRAMEWORK_PROFILE_TAG = "l2d.runtime";
 static unsigned long long PX_LiveFrameworkProfileVMUs;       /**< 虚拟机耗时累计（微秒） */
 static unsigned long long PX_LiveFrameworkProfilePhysicalUs;  /**< 物理更新耗时累计（微秒） */
 static unsigned long long PX_LiveFrameworkProfileLayerUs;     /**< 图层渲染耗时累计（微秒） */

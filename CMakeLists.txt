@@ -13,8 +13,8 @@ add_library(l2d_runtime STATIC
 target_include_directories(l2d_runtime
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/kernel)

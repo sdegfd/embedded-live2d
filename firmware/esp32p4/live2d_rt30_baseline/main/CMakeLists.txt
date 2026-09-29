@@ -1,7 +1,7 @@
 # Live2D RT30 基线验证入口组件
 idf_component_register(
-    SRCS "main.cpp" "profile_benchmark.cpp"
-    INCLUDE_DIRS "."
+    SRCS "main.cpp" "profile_benchmark.cpp" "private/l2d_px_diag.cpp"
+    INCLUDE_DIRS "." "private"
     REQUIRES
         esp_common
         esp_rom
@@ -28,11 +28,14 @@ if(NOT L2D_ESP_COMMIT)
 endif()
 get_filename_component(L2D_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 target_include_directories(${COMPONENT_LIB} PRIVATE
-    "${L2D_ROOT}/bench/scenarios"
-    "${L2D_ROOT}/src/engine"
-    "${L2D_ROOT}/src/internal"
-    "${L2D_ROOT}/src/internal/pe/core"
-    "${L2D_ROOT}/src/internal/pe/kernel")
+    "${L2D_ROOT}/bench/scenarios")
+# The private diagnostic adapter is the only application file that may see
+# the internal playback headers. main.cpp and profile_benchmark.cpp do not.
+target_include_directories(${COMPONENT_LIB} PRIVATE
+    "$<BUILD_INTERFACE:${L2D_ROOT}/src/engine>"
+    "$<BUILD_INTERFACE:${L2D_ROOT}/src/internal>"
+    "$<BUILD_INTERFACE:${L2D_ROOT}/src/internal/pe/core>"
+    "$<BUILD_INTERFACE:${L2D_ROOT}/src/internal/pe/kernel>")
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     L2D_ESP_COMMIT="${L2D_ESP_COMMIT}"
     L2D_PC_COMMIT="78fc634")

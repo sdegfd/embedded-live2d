@@ -153,3 +153,17 @@ void l2d_output_commit(l2d_output_t *output, const l2d_output_view_t *view,
     output->view = *view;
     output->history_ready = 1;
 }
+
+void l2d_output_committed(const l2d_output_t *output, l2d_roi_rect_t *current,
+                          int *history_ready)
+{
+    if (current) {
+        memset(current, 0, sizeof(*current));
+        if (output && output->history_ready) {
+            *current = output->current;
+        }
+    }
+    if (history_ready) {
+        *history_ready = output && output->history_ready ? 1 : 0;
+    }
+}

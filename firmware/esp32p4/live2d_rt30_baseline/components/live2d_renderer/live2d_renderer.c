@@ -3,7 +3,7 @@
  * @brief Live2D渲染器实现（待集成）
  *
  * ── 渲染管线位置 ──
- *   PainterEngine -> live2d_engine（动画/模型） -> live2d_renderer（格式转换） -> 显示缓冲区
+ *   l2d instance -> live2d_renderer（P4 PPA 格式转换） -> 显示缓冲区
  *
  * 本模块实现Live2D模型的渲染管线，包括ARGB8888到RGB565的像素格式转换，
  * 以及PPA（像素处理加速器）硬件加速转换。
@@ -14,11 +14,7 @@
 
 #include "live2d_renderer.h"
 
-#include "l2d/l2d_image.h"
-#include "l2d/l2d_roi.h"
-
 #include <string.h>
-#include <math.h>
 
 #include "esp_cache.h"
 #include "esp_log.h"
@@ -27,23 +23,9 @@
 
 static const char *TAG = "live2d_renderer";
 
-#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
-static live2d_roi_t live2d_renderer_geometry_roi(const l2d_geometry_bounds_t *b, int w, int h)
-{
-    l2d_roi_rect_t src = l2d_roi_from_geometry(b, w, h);
-    live2d_roi_t r = {src.x, src.y, src.w, src.h, src.valid != 0};
-    return r;
-}
-
-static live2d_roi_t live2d_renderer_union_roi(live2d_roi_t a, live2d_roi_t b)
-{
-    l2d_roi_rect_t u = l2d_roi_union((l2d_roi_rect_t){a.x, a.y, a.w, a.h, a.valid},
-                                    (l2d_roi_rect_t){b.x, b.y, b.w, b.h, b.valid});
-    return (live2d_roi_t){u.x, u.y, u.w, u.h, u.valid != 0};
-}
-#endif
-
 #define LIVE2D_RENDERER_LOG_PERIOD_FRAMES 120  /**< 渲染帧统计日志输出周期 */
+#define LIVE2D_RENDERER_BGRA_BYTES 4
+#define LIVE2D_RENDERER_PERF_SCALE 1.0f
 
 /* ── 内部辅助函数 ────────────────────────────────── */
 
@@ -69,8 +51,8 @@ static void live2d_renderer_update_dirty_rect(live2d_renderer_t *renderer,
 static void live2d_renderer_clear_dirty_rect_cpu(live2d_renderer_t *renderer)
 {
     uint8_t *base = (uint8_t *)renderer->buffer->render_argb8888;
-    const size_t stride = (size_t)renderer->buffer->width * sizeof(px_color);
-    const size_t row_bytes = (size_t)renderer->dirty_w * sizeof(px_color);
+    const size_t stride = (size_t)renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
+    const size_t row_bytes = (size_t)renderer->dirty_w * LIVE2D_RENDERER_BGRA_BYTES;
     const int y_end = renderer->dirty_y + renderer->dirty_h;
 
     if (renderer->dirty_x == 0 && renderer->dirty_w == renderer->buffer->width) {
@@ -80,7 +62,7 @@ static void live2d_renderer_clear_dirty_rect_cpu(live2d_renderer_t *renderer)
     }
 
     for (int y = renderer->dirty_y; y < y_end; ++y) {
-        memset(base + (size_t)y * stride + (size_t)renderer->dirty_x * sizeof(px_color),
+        memset(base + (size_t)y * stride + (size_t)renderer->dirty_x * LIVE2D_RENDERER_BGRA_BYTES,
                0, row_bytes);
     }
 }
@@ -113,7 +95,7 @@ static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer)
         return false;
     }
 
-    const size_t stride = (size_t)renderer->buffer->width * sizeof(px_color);
+    const size_t stride = (size_t)renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
     uint8_t *ptr = (uint8_t *)renderer->buffer->render_argb8888 +
                    (size_t)renderer->dirty_y * stride;
     const size_t bytes = (size_t)renderer->dirty_h * stride;
@@ -146,30 +128,21 @@ static void live2d_renderer_clear_dirty_rect(live2d_renderer_t *renderer)
     renderer->last_clear_fill_us = (uint32_t)(esp_timer_get_time() - fill_begin_us);
 }
 
-/** 检查PPA硬件加速器是否支持当前PainterEngine的像素颜色格式。 */
+/** Embedded pixels are BGRA8888. PPA accepts that layout with rgb_swap off. */
 static bool live2d_renderer_ppa_input_supported(void)
 {
-#if defined(PX_COLOR_FORMAT_RGBA) || defined(PX_COLOR_FORMAT_BGRA)
     return true;
-#else
-    return false;
-#endif
 }
 
-/** 获取PPA默认的RGB交换设置，根据PainterEngine颜色格式决定。 */
 static bool live2d_renderer_default_ppa_rgb_swap(void)
 {
-#if defined(PX_COLOR_FORMAT_RGBA)
-    return true;
-#else
     return false;
-#endif
 }
 
 /** 根据性能缩放因子计算缩放后的尺寸。 */
 static int live2d_renderer_scaled_dimension(int dimension)
 {
-    int scaled = (int)((float)dimension * LIVE2D_ENGINE_PERF_RENDER_SCALE + 0.5f);
+    int scaled = (int)((float)dimension * LIVE2D_RENDERER_PERF_SCALE + 0.5f);
     if (scaled < 1) {
         return 1;
     }
@@ -188,20 +161,19 @@ static bool live2d_renderer_ppa_requires_identity_validation(const live2d_render
            renderer->source_block_h == renderer->buffer->height;
 }
 
-/** 将 PainterEngine 的预乘 ARGB8888 颜色值转换为 RGB565。 */
-static inline uint16_t live2d_renderer_rgb565(px_color c)
+static inline uint16_t live2d_renderer_rgb565_at(const void *bgra, size_t index)
 {
-    /* Same formula as l2d_bgra8888_to_rgb565. Alpha is not applied again. */
-    return l2d_bgra8888_to_rgb565(c._argb.ucolor);
+    uint32_t pixel;
+    memcpy(&pixel, (const uint8_t *)bgra + index * LIVE2D_RENDERER_BGRA_BYTES, 4u);
+    return l2d_bgra8888_to_rgb565(pixel);
 }
 
-/** 软件方式将ARGB8888渲染缓冲区逐像素转换为RGB565帧缓冲区。 */
+/** 软件方式将 BGRA8888 渲染缓冲区逐像素转换为 RGB565 帧缓冲区。 */
 static void live2d_renderer_convert_to_rgb565(sys_display_buffer_t *buffer)
 {
-    const px_color *src = (const px_color *)buffer->render_argb8888;
     const size_t count = (size_t)buffer->width * (size_t)buffer->height;
     for (size_t i = 0; i < count; ++i) {
-        buffer->frame_rgb565[i] = live2d_renderer_rgb565(src[i]);
+        buffer->frame_rgb565[i] = live2d_renderer_rgb565_at(buffer->render_argb8888, i);
     }
 }
 
@@ -211,12 +183,11 @@ static size_t live2d_renderer_count_rgb565_mismatches(sys_display_buffer_t *buff
                                                       uint16_t *first_expected,
                                                       uint16_t *first_actual)
 {
-    const px_color *src = (const px_color *)buffer->render_argb8888;
     const size_t count = (size_t)buffer->width * (size_t)buffer->height;
     size_t mismatch_count = 0;
 
     for (size_t i = 0; i < count; ++i) {
-        uint16_t expected = live2d_renderer_rgb565(src[i]);
+        uint16_t expected = live2d_renderer_rgb565_at(buffer->render_argb8888, i);
         uint16_t actual = buffer->frame_rgb565[i];
         if (expected != actual) {
             if (mismatch_count == 0) {
@@ -284,13 +255,13 @@ static esp_err_t live2d_renderer_select_ppa_config(live2d_renderer_t *renderer)
             return ESP_OK;
         }
 
-        px_color first_color = ((const px_color *)renderer->buffer->render_argb8888)[first_mismatch];
+        const uint8_t *px = (const uint8_t *)renderer->buffer->render_argb8888 +
+                            first_mismatch * LIVE2D_RENDERER_BGRA_BYTES;
         ESP_LOGW(TAG,
                  "PPA RGB565 mismatch: rgb_swap=%d byte_swap=%d mismatches=%u first_pixel=%u argb=(%u,%u,%u,%u) ppa=0x%04x sw=0x%04x",
                  renderer->ppa_rgb_swap, renderer->ppa_byte_swap,
                  (unsigned)mismatch_count, (unsigned)first_mismatch,
-                 (unsigned)first_color._argb.a, (unsigned)first_color._argb.r,
-                 (unsigned)first_color._argb.g, (unsigned)first_color._argb.b,
+                 (unsigned)px[3], (unsigned)px[2], (unsigned)px[1], (unsigned)px[0],
                  (unsigned)first_actual, (unsigned)first_expected);
     }
 
@@ -314,11 +285,11 @@ static esp_err_t live2d_renderer_convert_to_rgb565_ppa(live2d_renderer_t *render
 #if CONFIG_L2D_SRM_ROI
     /* ROI is only defined for the 1:1 baseline. Other source layouts retain
      * the original full-frame conversion, including the same scale factors. */
-    if (!renderer->roi_force_full && renderer->roi_union.valid &&
+    if (!renderer->plan_force_full && renderer->plan_conversion.valid &&
         renderer->source_block_x==0 && renderer->source_block_y==0 &&
         block_w==renderer->buffer->width && block_h==renderer->buffer->height) {
-        block_x=renderer->roi_union.x; block_y=renderer->roi_union.y;
-        block_w=renderer->roi_union.w; block_h=renderer->roi_union.h;
+        block_x=renderer->plan_conversion.x; block_y=renderer->plan_conversion.y;
+        block_w=renderer->plan_conversion.w; block_h=renderer->plan_conversion.h;
         out_x=block_x; out_y=block_y;
         scale_x=1.f; scale_y=1.f;
     }
@@ -376,14 +347,9 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
 
     memset(renderer, 0, sizeof(*renderer));
     renderer->buffer = buffer;
-    renderer->render_surface.MP = NULL;
-    renderer->render_surface.surfaceBuffer = (px_color *)buffer->render_argb8888;
-    renderer->render_surface.width = buffer->width;
-    renderer->render_surface.height = buffer->height;
-    renderer->render_surface.limit_left = 0;
-    renderer->render_surface.limit_top = 0;
-    renderer->render_surface.limit_right = buffer->width - 1;
-    renderer->render_surface.limit_bottom = buffer->height - 1;
+    if (l2d_output_create(&renderer->output) != L2D_OK) {
+        return ESP_ERR_NO_MEM;
+    }
     renderer->source_block_w = live2d_renderer_scaled_dimension(buffer->width);
     renderer->source_block_h = live2d_renderer_scaled_dimension(buffer->height);
     renderer->source_block_x = (buffer->width - renderer->source_block_w) / 2;
@@ -427,7 +393,7 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
     }
 
     if (!live2d_renderer_ppa_input_supported()) {
-        ESP_LOGW(TAG, "PPA conversion disabled: unsupported PainterEngine px_color layout");
+        ESP_LOGW(TAG, "PPA conversion disabled: unsupported BGRA8888 layout");
         ESP_LOGI(TAG, "Renderer initialized: %dx%d ARGB8888 -> RGB565",
                  buffer->width, buffer->height);
         return ESP_OK;
@@ -466,6 +432,9 @@ void live2d_renderer_deinit(live2d_renderer_t *renderer)
     if (!renderer) {
         return;
     }
+
+    l2d_output_destroy(renderer->output);
+    renderer->output = NULL;
 
     if (renderer->ppa_srm_handle) {
         esp_err_t ret = ppa_unregister_client(renderer->ppa_srm_handle);
@@ -507,26 +476,36 @@ void live2d_renderer_set_rgb565_conversion(live2d_renderer_t *renderer, bool ena
 
 /** 渲染一帧Live2D画面：清除表面、渲染模型、执行ARGB到RGB565的转换并统计性能。
  *
- * 内部流程：清空 surface -> 调用 live2d_engine_render -> ARGB8888 转 RGB565（PPA 或软件）-> 性能统计。
+ * 内部流程：清空 surface -> l2d_pipeline_frame -> l2d_output_plan -> RGB565 -> commit。
  * 首次渲染时自动执行 PPA 配置选择（遍历 4 种 rgb_swap/byte_swap 组合以找到最佳匹配）。
  *
  * @param renderer   渲染器实例
- * @param engine     Live2D 引擎实例（需已加载模型）
+ * @param instance   已加载模型的播放实例
  * @param elapsed_ms 距上次渲染的毫秒数，用于驱动动画
- * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效或引擎未加载
+ * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效或实例未加载
  */
-esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engine_t *engine,
+esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance_t *instance,
                                        uint32_t elapsed_ms)
 {
-    if (!renderer || !renderer->buffer || !engine || !live2d_engine_is_loaded(engine)) {
+    l2d_instance_info_t info;
+    l2d_surface_t surface;
+    l2d_geometry_bounds_t geometry;
+    l2d_output_view_t view;
+    l2d_roi_rect_t current;
+    l2d_roi_rect_t conversion;
+    l2d_roi_rect_t previous;
+    int force_full = 0;
+    int history_ready = 0;
+    int conversion_ok = 1;
+    if (!renderer || !renderer->buffer || !renderer->output || !instance ||
+        !l2d_instance_is_loaded(instance)) {
         return ESP_ERR_INVALID_ARG;
     }
     renderer->last_frame_id = renderer->buffer->frame_id;
     renderer->last_ppa_convert_us = 0;
     renderer->last_convert_sync_us = 0;
 
-    live2d_engine_info_t info;
-    live2d_engine_get_info(engine, &info);
+    l2d_instance_info(instance, &info);
 
     int x = (renderer->buffer->width - info.width) / 2;
     int y = (renderer->buffer->height - info.height) / 2;
@@ -537,16 +516,6 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
         y = 0;
     }
 
-#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
-    bool roi_discontinuity=renderer->roi_history_ready &&
-        (renderer->last_origin_x!=x || renderer->last_origin_y!=y ||
-         renderer->roi_canvas_w!=renderer->buffer->width ||
-         renderer->roi_canvas_h!=renderer->buffer->height ||
-         renderer->roi_rgb565_buffer!=renderer->buffer->frame_rgb565 ||
-         renderer->roi_last_ppa_backend!=renderer->use_ppa_convert ||
-         renderer->roi_last_conversion_enabled!=renderer->convert_rgb565 ||
-         renderer->roi_engine_revision!=live2d_engine_get_roi_revision(engine));
-#endif
     renderer->last_origin_x = x;
     renderer->last_origin_y = y;
     int64_t bounds_begin_us = esp_timer_get_time();
@@ -555,50 +524,52 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
 
     int64_t clear_begin_us = esp_timer_get_time();
 
-    /* 阶段1：清空 ARGB8888 透明表面并调用 PainterEngine Live2D 渲染管线 */
+    /* 阶段1：清空整张 BGRA 画布，再做一次 update+draw。 */
     live2d_renderer_clear_dirty_rect(renderer);
     int64_t engine_begin_us = esp_timer_get_time();
-    live2d_engine_render(engine, renderer->render_surface.surfaceBuffer,
-                         renderer->render_surface.width, renderer->render_surface.height,
-                         x, y, elapsed_ms);
-
-#if CONFIG_L2D_PROFILE_ROI_DIAG || CONFIG_L2D_SRM_ROI
-    l2d_geometry_bounds_t geometry;
-    live2d_engine_get_geometry_bounds(engine, &geometry);
-    renderer->roi_previous = renderer->roi_current;
-    renderer->roi_current = live2d_renderer_geometry_roi(&geometry,
-        renderer->buffer->width, renderer->buffer->height);
-    renderer->roi_force_full = !renderer->roi_history_ready || roi_discontinuity ||
-        geometry.unsafe;
-    renderer->roi_union = renderer->roi_force_full
-        ? (live2d_roi_t){.x=0,.y=0,.w=renderer->buffer->width,
-                         .h=renderer->buffer->height,.valid=true}
-        : live2d_renderer_union_roi(renderer->roi_previous, renderer->roi_current);
-    if (!renderer->roi_union.valid) {
-        renderer->roi_force_full=true;
-        renderer->roi_union=(live2d_roi_t){.x=0,.y=0,.w=renderer->buffer->width,
-            .h=renderer->buffer->height,.valid=true};
+    surface.data = renderer->buffer->render_argb8888;
+    surface.width = renderer->buffer->width;
+    surface.height = renderer->buffer->height;
+    surface.stride_bytes = renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
+    surface.buffer_size_bytes = renderer->buffer->render_bytes;
+    surface.format = L2D_PIXEL_BGRA8888_LE;
+    if (l2d_pipeline_frame(instance, &surface, x, y, elapsed_ms) != L2D_OK) {
+        l2d_output_invalidate(renderer->output);
+        return ESP_FAIL;
     }
-    renderer->roi_history_ready = true;
-    renderer->roi_engine_revision=live2d_engine_get_roi_revision(engine);
-    renderer->roi_canvas_w=renderer->buffer->width;
-    renderer->roi_canvas_h=renderer->buffer->height;
-    renderer->roi_rgb565_buffer=renderer->buffer->frame_rgb565;
-    renderer->roi_last_ppa_backend=renderer->use_ppa_convert;
-    renderer->roi_last_conversion_enabled=renderer->convert_rgb565;
-#endif
+
+    l2d_instance_geometry_bounds(instance, &geometry);
+    l2d_output_committed(renderer->output, &previous, &history_ready);
+    view.origin_x = x;
+    view.origin_y = y;
+    view.canvas_w = renderer->buffer->width;
+    view.canvas_h = renderer->buffer->height;
+    view.target = renderer->buffer->frame_rgb565;
+    view.backend_tag = renderer->use_ppa_convert ? 1 : 0;
+    view.conversion_enabled = renderer->convert_rgb565 ? 1 : 0;
+    view.content_revision = l2d_instance_roi_revision(instance);
+    if (l2d_output_plan(renderer->output, &view, &geometry, &current, &conversion,
+                        &force_full) != L2D_OK) {
+        l2d_output_invalidate(renderer->output);
+        return ESP_FAIL;
+    }
+    renderer->plan_previous = previous;
+    renderer->plan_current = current;
+    renderer->plan_conversion = conversion;
+    renderer->plan_force_full = force_full;
+    (void)history_ready;
 
     int64_t convert_begin_us = esp_timer_get_time();
-    /* 阶段2：将 ARGB8888 渲染结果转换为显示所需的 RGB565 格式 */
+    /* 阶段2：将 BGRA8888 渲染结果转换为显示所需的 RGB565 格式。
+     * 成功后才 commit。PPA 失败时整帧软件转换成功，同样 commit。 */
     if (!renderer->convert_rgb565) {
-        /* LVGL overlay 路径直接消费 ARGB8888 + alpha，由 sys_display 的 PPA BLEND
+        /* LVGL overlay 路径直接消费 BGRA8888 + alpha，由 sys_display 的 PPA BLEND
          * 在 flush 前融合到背景层；这里无需再做 RGB565 转换或 PPA 自检。 */
     } else if (renderer->use_ppa_convert) {
         esp_err_t ret = (renderer->rendered_frames == 0)
                             ? live2d_renderer_select_ppa_config(renderer)
                             : live2d_renderer_convert_to_rgb565_ppa(renderer);
         if (ret != ESP_OK) {
-            /* PPA 转换失败，回退到软件逐像素转换 */
             renderer->use_ppa_convert = false;
             ESP_LOGW(TAG, "Disabling PPA conversion, reverting to software: %s",
                      esp_err_to_name(ret));
@@ -606,6 +577,11 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, live2d_engin
         }
     } else {
         live2d_renderer_convert_to_rgb565(renderer->buffer);
+    }
+    if (conversion_ok) {
+        l2d_output_commit(renderer->output, &view, current);
+    } else {
+        l2d_output_invalidate(renderer->output);
     }
     int64_t frame_end_us = esp_timer_get_time();
 

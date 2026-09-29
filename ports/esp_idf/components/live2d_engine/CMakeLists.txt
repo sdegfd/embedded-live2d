@@ -13,8 +13,8 @@ idf_component_register(
     SRCS ${L2D_ESP_SOURCES}
     INCLUDE_DIRS
         "${L2D_ROOT}/include"
-        "${L2D_ROOT}/src/engine"
     PRIV_INCLUDE_DIRS
+        "${L2D_ROOT}/src/engine"
         "${L2D_ROOT}/src/internal"
         "${L2D_ROOT}/src/internal/pe/core"
         "${L2D_ROOT}/src/internal/pe/kernel"
