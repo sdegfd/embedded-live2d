@@ -9,7 +9,7 @@
 | `firmware/esp32p4/live2d_rt30_baseline/` | ESP32-P4 Live2D 渲染基线、profiling、SD 示例模型 |
 | `doc/` | 移植报告、CSV 和测试说明 |
 
-ESP 工程地址：`firmware/esp32p4/live2d_rt30_baseline/`。它使用 ESP-IDF 5.5.2；进入该目录执行 `idf.py build`、`idf.py -p <串口> flash`。默认 `L2D_PROFILE_TIMING=y`，按 `L2D_PROFILE_STAGE` 选择场景，每场景预热 5 帧、采样 50 帧、只跑 1 轮，scale 固定为 1.0；每组结束通过串口输出原始记录和统计。PC 端运行 `python tools/capture_l2d_profile.py --port COM5 --out doc/profiling-run` 持续捕获，模型由使用者拷到设备 SD 卡根目录并命名为 `esp.live`。`L2D_PROFILE_CORRECTNESS` 单独运行固定姿态 CRC，`L2D_PROFILE_DETAIL` 单独统计工作量，两者均不作为正式耗时数据。最新实测见 [Baseline v2](doc/optimization/00-profile-v2.md)。
+ESP 工程地址：`firmware/esp32p4/live2d_rt30_baseline/`。它使用 ESP-IDF 5.5.2；进入该目录执行 `idf.py build`、`idf.py -p <串口> flash`。默认 `L2D_PROFILE_TIMING=y`，按 `L2D_PROFILE_STAGE` 选择场景，每场景预热 5 帧、采样 50 帧、只跑 1 轮，scale 固定为 1.0；每组结束通过串口输出原始记录和统计。PC 端运行 `python tools/capture_l2d_profile.py --port COM5 --out doc/profiling-run` 持续捕获，模型由使用者拷到设备 SD 卡根目录并命名为 `esp.live`。`L2D_PROFILE_CORRECTNESS` 单独运行固定姿态 CRC，`L2D_PROFILE_FINE` 与 `L2D_PROFILE_DETAIL` 单独统计诊断工作量，均不作为正式耗时数据。Phase 0–2 的结果和后续工作入口见 [交接文档](doc/optimization/HANDOFF_PHASE0_2.md)。
 
 CPU 占用算法和 33.333 ms 帧预算等待的真机复测见 [CPU 占用与帧等待记录](doc/cpu-monitor-2026-09-28/README.md)。
 

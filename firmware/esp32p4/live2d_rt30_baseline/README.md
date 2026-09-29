@@ -2,7 +2,7 @@
 
 ## 当前 profiling 版本
 
-本工程以已移植的 PC RT30 连续位置、纹理滞回、增量轴累加和姿态 revision 路径为渲染基线。此轮只加计时与工作量观测，未改采样器、渲染算法、缓冲、PPA 或显示路径。
+本工程以已移植的 PC RT30 连续位置、纹理滞回、增量轴累加和姿态 revision 路径为渲染基线。Phase 0–2 增加计时、CRC、细分诊断和 PPA/CPU 后端 A/B；保留 REALTIME30 跳过无用弹性方向计算，child stretch 预计算实验已回退，最终仍使用 PPA clear + PPA convert。结果见仓库 `doc/optimization/HANDOFF_PHASE0_2.md`。
 
 CPU 占用由 FreeRTOS 每核 Idle 任务的运行时间增量计算，约每秒更新一次，不再使用固定计数后休眠的空闲测量任务。持续动画日志另给出每帧平均 `total`（渲染并提交）、`budget_remain`（33.333 ms 预算剩余）、`actual_wait`（节拍函数实际等待）和 `period`（帧开始到等待结束），单位均为微秒。真机数据见仓库 [CPU 占用与帧等待复测](../../../doc/cpu-monitor-2026-09-28/README.md)。
 

@@ -1,0 +1,5 @@
+esp_commit=369939e59a092dee54cdc63fc339af4f7e83adf8
+model_sha256=786b18e342f3a7b3e67042822f138824aaad610d6c46130f58f5c59bbb379b0b
+model_size=798660
+mode=correctness
+scale_q100=100

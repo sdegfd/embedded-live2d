@@ -12,6 +12,8 @@ ESP 工程 commit `29c66ecfcc6abf14ffbd52748cc6fb4f2e34ad43`，PC Live2D commit 
 
 固定 15 姿态的 ARGB8888 和 RGB565 CRC 均已获取，15 次渲染和提交均成功；见 [correctness.csv](baseline_v2/correctness.csv)。正式计时 150 帧均无 frame drop、slot miss、lock skip 或 panic；deadline miss 为 EYE_L_SWEEP 2 帧、MULTI_AXIS 8 帧、STATIC 0 帧。实际阈值为从输入到提交返回超过 33333 µs。
 
+收尾时额外验证了 `L2D_PROFILE_TIMING=n`、`L2D_PROFILE_CORRECTNESS=y` 的真正独立入口；[15 姿态复核](standalone_correctness/correctness.csv) 与本阶段 CRC 完全一致，无提交失败或 panic。此复核仅检查正确性，不计入正式 150 帧 benchmark。
+
 ## 测量结果
 
 单位 µs。下表每格为 `平均 / P50 / P95 / P99`，完整 min/max 和所有分项见 [summary.csv](baseline_v2/summary.csv)，逐帧记录见 [frames.csv](baseline_v2/frames.csv)。
