@@ -9,3 +9,5 @@ The common short-v1 preset and scenario drive live in `Live2D/bench/scenarios/`.
 5. For correctness, use the separate correctness build and compare all ordered CRC rows with `examples/esp32p4/tools/compare_l2d_crc.py`. Restore timing config before benchmarking.
 
 Historical Phase 0–3B raw CSV, metadata and serial logs are retained in `docs/optimization/`. The [pre-reorganization refactor baseline](refactor-regression.md) reports 459/459 matching P4 correctness rows and a 27,335.74 us MULTI_AXIS average over 50 frames. The [final reorganization capture](reorg-final.md) repeats correctness and timing on the reorganized tree and records the regression.
+
+The current P4 timing comparison for this tree is [041 L2 cache 256 KB](../optimization/041-l2-cache-256.md). Against the reorganization capture, MULTI_AXIS raster average moves from 19237.90 µs to 17963.84 µs and frame average from 27896.66 µs to 26697.24 µs, with frame p95 27350 µs and zero deadline misses. The kept difference is example `sdkconfig`: L2 cache 256 KB and internal DMA reserve 128 KB. Raster source is unchanged. The word-span trial was reverted; see [040](../optimization/040-raster-word-span.md).

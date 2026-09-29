@@ -7,3 +7,23 @@ Work continued from `bc99a14` on `refactor/embedded-runtime`; Gate A–D code an
 The Host and P4 runners now share the `short-v1` scenario generator under `Live2D/bench/scenarios/`; P4 serial capture and CRC comparison stay with its example. The P4 reload test exposed an oversized fixed 16 MiB model arena. The model loader's reserve is now based on wire size; the 800796-byte formal file reserves 2650168 bytes and uses 837184 bytes. `RELOAD_STATIC` and `RELOAD_POSE` reload that same file, not a different model.
 
 Verification, raw CSVs, serial logs, configuration and timing comparison are indexed in [the final reorganization report](../benchmarks/reorg-final.md). The next runtime performance phase can start from its unchanged five-axis CRC baseline and the measured +2.05% MULTI_AXIS frame average regression.
+
+## 2026-09-29 memory assumption
+
+The earlier note that the hot path must stay friendly to internal-RAM-only chips with no PSRAM is withdrawn. It is recorded here so it is not reapplied.
+
+The working assumption for this performance phase is that the target has PSRAM, at least 8 MB. The current P4 captures still use the board's 32 MB PSRAM at 200 MHz; 8 MB is the floor for this phase, not a new allocator cap. Space-for-time buffers are allowed when a measurement shows they reduce frame time. Steady update and render still do not call the allocator; any extra buffer is reserved at init. A change that does not move measured milliseconds is reverted.
+
+## 2026-09-29 raster span trial
+
+Word loads/stores plus a fully-inside span path were measured on P4 `short-v1` against the `846b65e` baseline in [reorg-p4-timing](../benchmarks/reorg-p4-timing/summary.csv). Host pose CRCs stayed exact. There is no approximate coverage path.
+
+| Scenario | Baseline raster / frame µs | Trial raster / frame µs |
+| --- | ---: | ---: |
+| STATIC | 19384.86 / 25826.04 | 19512.94 / 25935.00 |
+| EYE_L_SWEEP | 19315.70 / 27319.54 | 19429.94 / 27495.34 |
+| MULTI_AXIS | 19237.90 / 27896.66 | 19395.46 / 28041.72 |
+
+MULTI_AXIS frame p95 moved from 28627 µs to 28432 µs. Deadline misses stayed 0. The raster average rose about 158 µs, so the trial is not kept. Raw rows are in [phase4_raster_span](../optimization/phase4_raster_span/summary.csv). The write-up is [040-raster-word-span.md](../optimization/040-raster-word-span.md). The extra byte memory operations were not extra PSRAM misses; the loop is stalled on cache fills. `__builtin_prefetch` compiles away on this P4 march, and a 4-wide software pipeline spilled registers, so neither was flashed.
+
+Espressif's documentation MCP (`search_espressif_sources` on `https://mcp.espressif.com/docs`) confirms L2 cache is selectable at 128 / 256 / 512 KB out of the 768 KB L2MEM. The kept platform change is L2 cache 256 KB with the internal DMA reserve lowered from 256 KB to 128 KB. A 256 KB cache alone does not boot: the DMA heap shrinks from 384 KB to 256 KB and `esp_psram_extram_reserve_dma_pool(262144)` returns `ESP_ERR_NO_MEM`. The reserve reduction by itself, with L2 left at 128 KB, matches the baseline within a few tens of microseconds, so the raster gain belongs to the larger cache. Write-up: [041-l2-cache-256.md](../optimization/041-l2-cache-256.md). Shared raster source is unchanged. 512 KB L2 was not flashed; it would take another 256 KB from that same DMA heap.

@@ -11,6 +11,10 @@
 - 所有画质或行为变化必须明确标记为 trade-off。
 - 上一阶段没有完成正确性验证和 A/B 数据，不进入下一阶段的叠加实现。
 
+2026-09-29 内存前提：不再按「只有内部 RAM、没有 PSRAM」设计。本阶段默认目标带 PSRAM，至少 8 MB。当前 P4 实测仍是 32 MB / 200 MHz；8 MB 是下限，不是新的分配上限。允许用空间换时间，但必须有实测，没有毫秒级收益就撤回。稳态 update/render 仍然不在帧内调用分配器。这条只覆盖本阶段，不改写下面历史基线里的四轴数字。现行五轴计时以 `docs/benchmarks/reorg-final.md` 为准。
+
+同日已保留的平台改动：P4 L2 从 128 KB 调到 256 KB，内部 DMA reserve 从 256 KB 降到 128 KB，否则 256 KB 缓存无法启动。对照实验表明单独降低 reserve 不改变光栅时间。MULTI_AXIS 光栅约 19.24 ms 降到 17.96 ms，帧约 27.90 ms 降到 26.70 ms，p95 约 27.35 ms，deadline miss 仍为 0。细节见 `docs/optimization/041-l2-cache-256.md`。字面 span 试验无收益，已撤回，见 `docs/optimization/040-raster-word-span.md`。
+
 当前冻结基线：
 
 - 芯片：ESP32-P4 rev1.3
