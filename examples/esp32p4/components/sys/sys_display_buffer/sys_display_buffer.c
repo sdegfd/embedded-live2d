@@ -60,7 +60,7 @@ static esp_err_t sys_display_buffer_create_common(int width, int height,
     sys_display_buffer_log_psram("before alloc");
 
     out->render_argb8888 = heap_caps_aligned_alloc(
-        64, out->render_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);  /* 64字节对齐，满足DMA要求 */
+        128, out->render_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);  /* 128字节对齐，覆盖 64/128 缓存行和 DMA */
     if (!out->render_argb8888) {
         ESP_LOGE(TAG, "render buffer alloc failed: %u bytes", (unsigned)out->render_bytes);
         sys_display_buffer_destroy(out);
@@ -69,7 +69,7 @@ static esp_err_t sys_display_buffer_create_common(int width, int height,
 
     if (alloc_rgb565) {
         out->frame_rgb565 = heap_caps_aligned_alloc(
-            64, out->frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);  /* 64字节对齐，满足DMA要求 */
+            128, out->frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);  /* 128字节对齐，覆盖 64/128 缓存行和 DMA */
         if (!out->frame_rgb565) {
             ESP_LOGE(TAG, "frame buffer alloc failed: %u bytes", (unsigned)out->frame_bytes);
             sys_display_buffer_destroy(out);
