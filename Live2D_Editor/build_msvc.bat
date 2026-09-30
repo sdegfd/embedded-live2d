@@ -18,7 +18,8 @@ for %%F in ("%ENGINE_DIR%\runtime\*.c") do >>"%RSP%" echo "%%~fF"
 for %%F in ("%ENGINE_DIR%\platform\windows\*.c") do >>"%RSP%" echo "%%~fF"
 for %%F in ("%ENGINE_DIR%\platform\windows\*.cpp") do >>"%RSP%" echo "%%~fF"
 pushd "%PROJECT_DIR%"
-cl /nologo /W3 /EHsc /utf-8 /D_CRT_SECURE_NO_WARNINGS /I "%ENGINE_DIR%" /I "%ENGINE_DIR%\runtime" /I "%ENGINE_DIR%\platform\windows" /I "%PROJECT_DIR%" /Fo"%PROJECT_DIR%build\obj\" @"%RSP%" /link /OUT:"%PROJECT_DIR%%OUTPUT_NAME%" /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup d2d1.lib dsound.lib ws2_32.lib comdlg32.lib imm32.lib advapi32.lib
+rem PROJECT_DIR already ends in a backslash. A quoted "dir\" is one argument to cl, so keep a dot on that include and a forward slash on /Fo.
+cl /nologo /W3 /EHsc /utf-8 /D_CRT_SECURE_NO_WARNINGS /I "%ENGINE_DIR%" /I "%ENGINE_DIR%\runtime" /I "%ENGINE_DIR%\platform\windows" /I "%PROJECT_DIR%." /Fo"%PROJECT_DIR%build\obj/" @"%RSP%" /link /OUT:"%PROJECT_DIR%%OUTPUT_NAME%" /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup d2d1.lib dsound.lib ws2_32.lib comdlg32.lib imm32.lib advapi32.lib
 set "RESULT=%ERRORLEVEL%"
 popd
 exit /b %RESULT%
