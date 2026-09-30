@@ -8,6 +8,7 @@
 		"file":"文件",
 		"new project":"新建项目",
 		"import image file":"导入图像文件",
+		"import psd":"导入 PSD",
 		"import live":"打开项目",
 		"export live":"导出live文件",
 		
@@ -53,6 +54,15 @@
 	   "Invalid image size":"不匹配的图片尺寸:",
 	   "Could not load":"无法加载:",
 	   "out of memory":"内存不足，纹理未替换"
+	},
+	"importpsd":
+	{
+	   "Could not load":"无法读取 PSD",
+	   "Unsupported document":"仅支持不超过 1280 边长的 8/16/32 位 RGB PSD",
+	   "No layers":"没有可导入的像素图层",
+	   "Canvas mismatch":"画布尺寸与当前项目不一致，项目未改变",
+	   "Too many layers":"图层数量超过 256，项目未改变",
+	   "Out of memory":"内存不足，项目未改变"
 	},
 	"importlive":
 	{

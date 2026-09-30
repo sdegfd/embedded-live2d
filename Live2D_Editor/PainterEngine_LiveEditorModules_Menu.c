@@ -40,6 +40,14 @@ px_void PX_LiveEditorModule_Menu_OnMenuImportImageFiles(px_void *userPtr)
 	PX_ObjectExecuteEvent(pMenuObject->pParent,PX_OBJECT_BUILD_EVENT(PX_LIVEFRAMEWORKMODULES_MENU_EVENT_LOADIMAGE));
 
 }
+
+px_void PX_LiveEditorModule_Menu_OnMenuImportPsd(px_void *userPtr)
+{
+	PX_Object *pMenuObject=(PX_Object *)userPtr;
+	PX_ObjectExecuteEvent(pMenuObject->pParent,PX_OBJECT_BUILD_EVENT(PX_LIVEFRAMEWORKMODULES_MENU_EVENT_LOADPSD));
+
+}
+
 px_void PX_LiveEditorModule_Menu_OnMenuLayer(px_void *userPtr)
 {
 	PX_Object *pMenuObject=(PX_Object *)userPtr;
@@ -308,6 +316,7 @@ PX_Object * PX_LiveEditorModule_MenuInstall(PX_Object *pparent,PX_Runtime *prunt
 		
 		//File->Import image
 		pMenu->file_import_image_file=PX_Object_MenuAddItem(pMenu->Menu,pItem,PX_JsonGetString(pLanguageJson,"menu.import image file"),PX_LiveEditorModule_Menu_OnMenuImportImageFiles,pObject);
+		pMenu->file_import_psd=PX_Object_MenuAddItem(pMenu->Menu,pItem,PX_JsonGetString(pLanguageJson,"menu.import psd"),PX_LiveEditorModule_Menu_OnMenuImportPsd,pObject);
 
 		//File->export live
 		pMenu->file_export_live=PX_Object_MenuAddItem(pMenu->Menu,pItem,PX_JsonGetString(pLanguageJson,"menu.export live"),PX_LiveEditorModule_Menu_OnMenuExportLive,pObject);
@@ -369,6 +378,7 @@ px_void PX_LiveEditorModule_MenuStandbyMode(PX_Object *pObject)
 	PX_LiveEditorModule_Menu *pMenu=(PX_LiveEditorModule_Menu *)pObject->pObjectDesc[0];
 
 	pMenu->file_import_image_file->enable=PX_FALSE;
+	pMenu->file_import_psd->enable=PX_FALSE;
 	pMenu->view_controller->enable=PX_FALSE;
 	pMenu->file_export_live->enable=PX_FALSE;
 
@@ -396,6 +406,7 @@ px_void PX_LiveEditorModule_MenuEditMode(PX_Object *pObject)
 {
 	PX_LiveEditorModule_Menu *pMenu=(PX_LiveEditorModule_Menu *)pObject->pObjectDesc[0];
 	pMenu->file_import_image_file->enable=PX_TRUE;
+	pMenu->file_import_psd->enable=PX_TRUE;
 	pMenu->view_controller->enable=PX_TRUE;
 	pMenu->file_export_live->enable=PX_TRUE;
 

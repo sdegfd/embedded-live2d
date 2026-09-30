@@ -14,12 +14,13 @@
 #define PX_LIVEFRAMEWORKMODULES_MENU_EVENT_RESETPOSITION    0x00070007
 #define PX_LIVEFRAMEWORKMODULES_MENU_EVENT_SHOWHELPERLINE    0x00070008
 #define PX_LIVEFRAMEWORKMODULES_MENU_EVENT_REALTIME_PREVIEW  0x00070009
+#define PX_LIVEFRAMEWORKMODULES_MENU_EVENT_LOADPSD    0x0007000A
 typedef struct
 {
 	PX_LiveFramework *pLiveFramework;
 	PX_Runtime *pruntime;
 	PX_Object *Menu;
-	PX_Object_Menu_Item *file_new_project,*file_import_live,*file_export_live,*file_import_image_file;
+	PX_Object_Menu_Item *file_new_project,*file_import_live,*file_export_live,*file_import_image_file,*file_import_psd;
 	PX_Object_Menu_Item *view_controller,*view_showfps,*view_resetposition,*view_showhelpline;
 	PX_Object_Menu_Item *render_showkeypoints,*render_showlinker,*render_showmesh;
 	PX_Object_Menu_Item *animation_resetframe,*animation_resettranslation,*animation_resetvertices,*animation_resetrotation,*animation_resetstretch;

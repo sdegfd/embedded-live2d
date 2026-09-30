@@ -4,6 +4,7 @@
 #include "PainterEngine_LiveEditorModules_Menu.h"
 #include "PainterEngine_LiveEditorModules_CreateProject.h"
 #include "PainterEngine_LiveEditorModules_ImportImage.h"
+#include "PainterEngine_LiveEditorModules_ImportPsd.h"
 #include "PainterEngine_LiveEditorModules_LiveController.h"
 #include "PainterEngine_LiveEditorModules_RealtimeController.h"
 #include "PainterEngine_LiveEditorModules_RealtimeAnimationController.h"
@@ -40,6 +41,7 @@ typedef struct
 	PX_Object* module_menu;
 	PX_Object* module_createproject;
 	PX_Object* module_importimage;
+	PX_Object* module_importpsd;
 	PX_Object* module_importlive;
 	PX_Object* module_exportlive;
 	PX_Object* module_livecontroller;
@@ -134,6 +136,16 @@ px_void PX_Object_LiveEditorOnScheduleEvent_CreateProject_confirm(PX_Object_Live
 px_void PX_Object_LiveEditorOnScheduleEvent_LoadImage(PX_Object_LiveEditor* pApp, PX_Object_Event e, px_void* ptr)
 {
 	PX_LiveEditorModule_ImportImageEnable(pApp->module_importimage);
+}
+
+px_void PX_Object_LiveEditorOnScheduleEvent_LoadPsd(PX_Object_LiveEditor* pApp, PX_Object_Event e, px_void* ptr)
+{
+	PX_LiveEditorModule_ImportPsdEnable(pApp->module_importpsd);
+}
+
+px_void PX_Object_LiveEditorOnScheduleEvent_ImportPsd_exit(PX_Object_LiveEditor* pApp, PX_Object_Event e, px_void* ptr)
+{
+	PX_LiveEditorModule_ImportPsdDisable(pApp->module_importpsd);
 }
 
 px_void PX_Object_LiveEditorOnScheduleEvent_Message(PX_Object_LiveEditor* pApp, PX_Object_Event e, px_void* ptr)
@@ -542,8 +554,14 @@ px_void PX_Object_LiveEditorOnScheduleEvent(PX_Object* pObject, PX_Object_Event 
 		PX_Object_LiveEditorOnScheduleEvent_LoadImage(pApp, e, ptr);
 	}
 	break;
+	case PX_LIVEFRAMEWORKMODULES_MENU_EVENT_LOADPSD:
+	{
+		PX_Object_LiveEditorOnScheduleEvent_LoadPsd(pApp, e, ptr);
+	}
+	break;
 	case PX_LIVEEDITORMODULE_IMPORTLIVE_EVENT_MESSAGE:
 	case PX_LIVEEDITORMODULE_IMPORTIMAGE_EVENT_MESSAGE:
+	case PX_LIVEEDITORMODULE_IMPORTPSD_EVENT_MESSAGE:
 	case PX_LIVEEDITORMODULE_EXPORTLIVE_EVENT_MESSAGE:
 	case PX_LIVEEDITORMODULE_BUILDMESH_EVENT_MESSAGE:
 	case PX_LIVEEDITORMODULE_LIVECONTROLLER_EVENT_MESSAGE:
@@ -565,6 +583,11 @@ px_void PX_Object_LiveEditorOnScheduleEvent(PX_Object* pObject, PX_Object_Event 
 	case PX_LIVEEDITORMODULE_IMPORTIMAGE_EVENT_EXIT:
 	{
 		PX_Object_LiveEditorOnScheduleEvent_ImportImage_exit(pApp, e, ptr);
+	}
+	break;
+	case PX_LIVEEDITORMODULE_IMPORTPSD_EVENT_EXIT:
+	{
+		PX_Object_LiveEditorOnScheduleEvent_ImportPsd_exit(pApp, e, ptr);
 	}
 	break;
 	case PX_LIVEFRAMEWORKMODULES_LIVECONTROLLER_EVENT_BUILDMESH:
@@ -791,6 +814,10 @@ PX_Object* PX_Object_LiveEditorCreate(PX_Runtime* pruntime, PX_Object* parent)
 	if ((pApp->module_importimage = PX_LiveEditorModule_ImportImageInstall(pObject, pruntime, &pApp->fontmodule, &pApp->liveFramework, &pApp->languageJson)) == PX_NULL)
 		goto _ERROR;
 	PX_LiveEditorModule_ImportImageDisable(pApp->module_importimage);
+
+	if ((pApp->module_importpsd = PX_LiveEditorModule_ImportPsdInstall(pObject, pruntime, &pApp->fontmodule, &pApp->liveFramework, &pApp->languageJson)) == PX_NULL)
+		goto _ERROR;
+	PX_LiveEditorModule_ImportPsdDisable(pApp->module_importpsd);
 
 	if ((pApp->module_importlive = PX_LiveEditorModule_ImportLiveInstall(pObject, pruntime, &pApp->fontmodule, &pApp->liveFramework, &pApp->languageJson)) == PX_NULL)
 		goto _ERROR;
