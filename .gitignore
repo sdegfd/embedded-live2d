@@ -1,6 +1,7 @@
 # 编译产物。源码用 build_msvc.bat 可以重新生成。
 *.obj
 *.exe
+!/Live2D_Editor/PainterEngine.exe
 *.ilk
 *.pdb
 *.lib
