@@ -9,6 +9,16 @@ px_byte main_surface[1024 * 1024 * 16];
 volatile px_bool main_exit=0;
 px_mutex main_surface_mutex;
 
+/* 1 ms timer makes this sleep accurate. 8 ms is about 120 fps, above the old Sleep(10) ceiling. */
+static void PX_WinPaceFrame(DWORD started)
+{
+	DWORD spent=timeGetTime()-started;
+	if (spent<8)
+	{
+		Sleep(8-spent);
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////
 DWORD WINAPI DEMO_RenderThreadFunc(LPVOID p)
 {   
@@ -30,6 +40,7 @@ DWORD WINAPI DEMO_RenderThreadFunc(LPVOID p)
 
 	while(1)
 	{
+		DWORD frameStart=timeGetTime();
 
 		PX_SystemReadDeviceState();
 
@@ -278,7 +289,7 @@ DWORD WINAPI DEMO_RenderThreadFunc(LPVOID p)
 		PX_MutexLock(&main_surface_mutex);
 		memcpy(main_surface,App.runtime.RenderSurface.surfaceBuffer, App.runtime.RenderSurface.width* App.runtime.RenderSurface.height*4);
 		PX_MutexUnlock(&main_surface_mutex);
-		PX_Sleep(10);
+		PX_WinPaceFrame(frameStart);
 	}
 	return 0;
 }
@@ -324,15 +335,18 @@ void setCurrentDirectory()
 	//////////////////////////////////////////////////////////////////////////
 	//CreateThread
 
+	timeBeginPeriod(1);
 	hThread = CreateThread(NULL, 0, DEMO_RenderThreadFunc, 0, 0, &threadId);
 
 	while(PX_SystemLoop()&&!main_exit)
 	{
+		DWORD frameStart=timeGetTime();
 		PX_MutexLock(&main_surface_mutex);
 		PX_SystemRender(main_surface, App.runtime.surface_width, App.runtime.surface_height);
 		PX_MutexUnlock(&main_surface_mutex);
-		PX_Sleep(10);
+		PX_WinPaceFrame(frameStart);
 	};
+	timeEndPeriod(1);
 
 	return 0;
 }

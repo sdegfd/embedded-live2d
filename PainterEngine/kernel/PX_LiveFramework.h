@@ -237,8 +237,11 @@ px_void PX_LiveFrameworkPause(PX_LiveFramework *plive);
 px_void PX_LiveFrameworkReset(PX_LiveFramework *plive);
 px_void PX_LiveFrameworkStop(PX_LiveFramework *plive);
 
-/* Explicit update/render split. RenderCurrent never advances animation state. */
+/* Explicit update/render split. RenderCurrent never advances animation state.
+   RenderLayers draws the picture only. RenderOverlay draws mesh wires and edit marks in screen space. */
 px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed);
+px_void PX_LiveFrameworkRenderLayers(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint);
+px_void PX_LiveFrameworkRenderOverlay(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint);
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint);
 
 

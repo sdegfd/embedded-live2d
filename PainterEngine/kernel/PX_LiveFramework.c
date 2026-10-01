@@ -985,9 +985,13 @@ static px_void PX_LiveFrameworkUpdateLayerInterpolation(PX_LiveFramework *plive,
 
 }
 
-static px_void PX_LiveFramework_UpdateLayerKeyPoint(PX_LiveFramework *pLive,PX_LiveLayer *pLayer)
+static px_void PX_LiveFramework_UpdateLayerKeyPoint(PX_LiveFramework *pLive,PX_LiveLayer *pLayer,px_int depth)
 {
 	px_int i;
+	if (!pLayer||depth<=0)
+	{
+		return;
+	}
 	if (pLayer->parent_index!=-1)
 	{
 		//stretch
@@ -1011,7 +1015,7 @@ static px_void PX_LiveFramework_UpdateLayerKeyPoint(PX_LiveFramework *pLive,PX_L
 	{
 		if (pLayer->child_index[i]!=-1)
 		{
-			PX_LiveFramework_UpdateLayerKeyPoint(pLive,PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[i]));
+			PX_LiveFramework_UpdateLayerKeyPoint(pLive,PX_LiveFrameworkGetLayerChild(pLive,pLayer,pLayer->child_index[i]),depth-1);
 		}
 		else
 		{
@@ -1029,10 +1033,15 @@ static px_void PX_LiveFramework_UpdateLayerKeyPoint(PX_LiveFramework *pLive,PX_L
 static px_void PX_LiveFramework_GetLayerVisualTransform(PX_LiveFramework *pLive,PX_LiveLayer *pLayer,px_float *pScale,px_float *pRotation,px_point *pTranslation)
 {
 	PX_LiveLayer *pCurrent=pLayer;
+	px_int guard=pLive->layers.size;
 	*pScale=1;
 	*pRotation=0;
 	*pTranslation=PX_POINT(0,0,0);
-	while(pCurrent)
+	if (guard<1)
+	{
+		guard=1;
+	}
+	while(pCurrent&&guard>0)
 	{
 		px_point pivot=pCurrent->currentKeyPoint;
 		px_point localTranslation=PX_PointRotate(pCurrent->rel_currentLocalTranslation,pCurrent->rel_currentRotationAngle);
@@ -1044,6 +1053,7 @@ static px_void PX_LiveFramework_GetLayerVisualTransform(PX_LiveFramework *pLive,
 		*pScale*=pCurrent->rel_currentLocalScale;
 		*pRotation+=pCurrent->rel_currentLocalRotationAngle;
 		pCurrent=PX_LiveFrameworkGetLayerParent(pLive,pCurrent);
+		guard--;
 	}
 }
 
@@ -1305,7 +1315,7 @@ static px_void PX_LiveFrameworkUpdatePhysical(PX_LiveFramework *plive,px_dword e
 		PX_LiveLayer *pLayer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
 		if (pLayer->parent_index==-1)
 		{
-			PX_LiveFramework_UpdateLayerKeyPoint(plive,pLayer);
+			PX_LiveFramework_UpdateLayerKeyPoint(plive,pLayer,plive->layers.size);
 		}
 	}
 
@@ -1665,58 +1675,6 @@ static px_void PX_LiveFrameworkRenderLayer(px_surface *psurface,PX_LiveFramework
 				}
 				
 			}
-
-			if (pLayer->showMesh)
-			{
-				for (t=0;t<pLayer->triangles.size;t++)
-				{
-					PX_LiveRenderVertex v0,v1,v2;
-					PX_LiveVertex *pv0,*pv1,*pv2;
-					pTriangleIndex=PX_VECTORAT(PX_Delaunay_Triangle,&pLayer->triangles,t);
-					pv0=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index1);
-					pv1=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index2);
-					pv2=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index3);
-					v0.position.x=pv0->currentPosition.x*view_scale+x;
-					v0.position.y=pv0->currentPosition.y*view_scale+y;
-					v0.normal=pv0->normal;
-					v0.u=pv0->u;
-					v0.v=pv0->v;
-
-					v1.position.x=pv1->currentPosition.x*view_scale+x;
-					v1.position.y=pv1->currentPosition.y*view_scale+y;
-					v1.normal=pv1->normal;
-					v1.u=pv1->u;
-					v1.v=pv1->v;
-
-					v2.position.x=pv2->currentPosition.x*view_scale+x;
-					v2.position.y=pv2->currentPosition.y*view_scale+y;
-					v2.normal=pv2->normal;
-					v2.u=pv2->u;
-					v2.v=pv2->v;
-
-
-					PX_GeoDrawLine(psurface,(px_int)v0.position.x,(px_int)v0.position.y,(px_int)v1.position.x,(px_int)v1.position.y,1,PX_COLOR(128,255,0,0));
-					PX_GeoDrawLine(psurface,(px_int)v0.position.x,(px_int)v0.position.y,(px_int)v2.position.x,(px_int)v2.position.y,1,PX_COLOR(128,255,0,0));
-					PX_GeoDrawLine(psurface,(px_int)v1.position.x,(px_int)v1.position.y,(px_int)v2.position.x,(px_int)v2.position.y,1,PX_COLOR(128,255,0,0));
-
-					PX_GeoDrawSolidCircle(psurface,(px_int)v0.position.x,(px_int)v0.position.y,3,PX_COLOR(128,255,0,0));
-					PX_GeoDrawSolidCircle(psurface,(px_int)v1.position.x,(px_int)v1.position.y,3,PX_COLOR(128,255,0,0));
-					PX_GeoDrawSolidCircle(psurface,(px_int)v2.position.x,(px_int)v2.position.y,3,PX_COLOR(128,255,0,0));
-				}
-
-				if (plive->currentEditLayerIndex>=0&&plive->currentEditLayerIndex<plive->layers.size)
-				{
-					if (pLayer==PX_VECTORAT(PX_LiveLayer,&plive->layers,plive->currentEditLayerIndex))
-					{
-						if (plive->currentEditVertexIndex>=0&&plive->currentEditVertexIndex<pLayer->vertices.size)
-						{
-							PX_LiveVertex *pLiveVertex=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,plive->currentEditVertexIndex);
-							PX_GeoDrawCircle(psurface,(px_int)(pLiveVertex->currentPosition.x*view_scale+x),(px_int)(pLiveVertex->currentPosition.y*view_scale+y),5,1,PX_COLOR(255,255,128,0));
-						}
-					}
-				}
-
-			}
 		}
 		else
 		{
@@ -1757,46 +1715,89 @@ static px_void PX_LiveFrameworkRenderLayer(px_surface *psurface,PX_LiveFramework
 	}
 }
 
-px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint)
+static px_void PX_LiveFramework_AdjustRenderOrigin(PX_LiveFramework *plive,px_float *x,px_float *y,PX_ALIGN refPoint)
 {
-	PX_QuickSortAtom sAtom[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
-	px_int i,count;
 	px_float view_scale=plive->view_scale>0?plive->view_scale:1.0f;
-
 	switch (refPoint)
 	{
 	case PX_ALIGN_LEFTTOP:
 		break;
 	case PX_ALIGN_MIDTOP:
-		x-=plive->width*view_scale/2;
+		*x-=plive->width*view_scale/2;
 		break;
 	case PX_ALIGN_RIGHTTOP:
-		x-=plive->width*view_scale;
+		*x-=plive->width*view_scale;
 		break;
 	case PX_ALIGN_LEFTMID:
-		y-=plive->height*view_scale/2;
+		*y-=plive->height*view_scale/2;
 		break;
 	case PX_ALIGN_CENTER:
-		y-=plive->height*view_scale/2;
-		x-=plive->width*view_scale/2;
+		*y-=plive->height*view_scale/2;
+		*x-=plive->width*view_scale/2;
 		break;
 	case PX_ALIGN_RIGHTMID:
-		y-=plive->height*view_scale/2;
-		x-=plive->width*view_scale;
+		*y-=plive->height*view_scale/2;
+		*x-=plive->width*view_scale;
 		break;
 	case PX_ALIGN_LEFTBOTTOM:
-		y-=plive->height*view_scale;
+		*y-=plive->height*view_scale;
 		break;
 	case PX_ALIGN_MIDBOTTOM:
-		y-=plive->height*view_scale;
-		x-=plive->width*view_scale/2;
+		*y-=plive->height*view_scale;
+		*x-=plive->width*view_scale/2;
 		break;
 	case PX_ALIGN_RIGHTBOTTOM:
-		y-=plive->height*view_scale;
-		x-=plive->width*view_scale;
+		*y-=plive->height*view_scale;
+		*x-=plive->width*view_scale;
 		break;
 	}
+}
 
+static px_void PX_LiveFramework_RenderLayerMesh(px_surface *psurface,PX_LiveFramework *plive,PX_LiveLayer *pLayer,px_float x,px_float y)
+{
+	px_int t;
+	px_float view_scale=plive->view_scale>0?plive->view_scale:1.0f;
+	if (!pLayer->showMesh||pLayer->triangles.size==0||pLayer->vertices.size==0)
+	{
+		return;
+	}
+	for (t=0;t<pLayer->triangles.size;t++)
+	{
+		PX_Delaunay_Triangle *pTriangleIndex=PX_VECTORAT(PX_Delaunay_Triangle,&pLayer->triangles,t);
+		PX_LiveVertex *pv0=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index1);
+		PX_LiveVertex *pv1=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index2);
+		PX_LiveVertex *pv2=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,pTriangleIndex->index3);
+		px_int x0=(px_int)(pv0->currentPosition.x*view_scale+x);
+		px_int y0=(px_int)(pv0->currentPosition.y*view_scale+y);
+		px_int x1=(px_int)(pv1->currentPosition.x*view_scale+x);
+		px_int y1=(px_int)(pv1->currentPosition.y*view_scale+y);
+		px_int x2=(px_int)(pv2->currentPosition.x*view_scale+x);
+		px_int y2=(px_int)(pv2->currentPosition.y*view_scale+y);
+		PX_GeoDrawLine(psurface,x0,y0,x1,y1,1,PX_COLOR(128,255,0,0));
+		PX_GeoDrawLine(psurface,x0,y0,x2,y2,1,PX_COLOR(128,255,0,0));
+		PX_GeoDrawLine(psurface,x1,y1,x2,y2,1,PX_COLOR(128,255,0,0));
+		PX_GeoDrawSolidCircle(psurface,x0,y0,3,PX_COLOR(128,255,0,0));
+		PX_GeoDrawSolidCircle(psurface,x1,y1,3,PX_COLOR(128,255,0,0));
+		PX_GeoDrawSolidCircle(psurface,x2,y2,3,PX_COLOR(128,255,0,0));
+	}
+	if (plive->currentEditLayerIndex>=0&&plive->currentEditLayerIndex<plive->layers.size)
+	{
+		if (pLayer==PX_VECTORAT(PX_LiveLayer,&plive->layers,plive->currentEditLayerIndex))
+		{
+			if (plive->currentEditVertexIndex>=0&&plive->currentEditVertexIndex<pLayer->vertices.size)
+			{
+				PX_LiveVertex *pLiveVertex=PX_VECTORAT(PX_LiveVertex,&pLayer->vertices,plive->currentEditVertexIndex);
+				PX_GeoDrawCircle(psurface,(px_int)(pLiveVertex->currentPosition.x*view_scale+x),(px_int)(pLiveVertex->currentPosition.y*view_scale+y),5,1,PX_COLOR(255,255,128,0));
+			}
+		}
+	}
+}
+
+px_void PX_LiveFrameworkRenderLayers(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint)
+{
+	PX_QuickSortAtom sAtom[PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER];
+	px_int i,count;
+	PX_LiveFramework_AdjustRenderOrigin(plive,&x,&y,refPoint);
 
 	if (plive->layers.size)
 	{
@@ -1819,7 +1820,18 @@ px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *pli
 			PX_LiveFrameworkRenderLayer(psurface,plive,pLayer,x,y,0);
 		}
 	}
-	
+}
+
+px_void PX_LiveFrameworkRenderOverlay(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint)
+{
+	px_int i;
+	px_float view_scale=plive->view_scale>0?plive->view_scale:1.0f;
+	PX_LiveFramework_AdjustRenderOrigin(plive,&x,&y,refPoint);
+	for (i=0;i<plive->layers.size;i++)
+	{
+		PX_LiveFramework_RenderLayerMesh(psurface,plive,PX_VECTORAT(PX_LiveLayer,&plive->layers,i),x,y);
+	}
+
 	if (plive->showKeypoint&&!plive->showlinker)
 	{
 		for (i=0;i<plive->layers.size;i++)
@@ -1899,6 +1911,12 @@ px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *pli
 		}
 	}
 
+}
+
+px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint)
+{
+	PX_LiveFrameworkRenderLayers(psurface,plive,x,y,refPoint);
+	PX_LiveFrameworkRenderOverlay(psurface,plive,x,y,refPoint);
 }
 
 px_void PX_LiveFrameworkRender(px_surface *psurface,PX_LiveFramework *plive,px_float x,px_float y,PX_ALIGN refPoint,px_dword elapsed)
@@ -2266,39 +2284,57 @@ px_void PX_LiveFrameworkDeleteLiveAnimationById(PX_LiveFramework *plive,const px
 	}
 }
 
-px_bool PX_LiveFrameworkLinkLayerSearchSubLayer(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *pSearchLayer)
+static px_bool PX_LiveFrameworkLinkLayerSearchSubLayerLimited(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *pSearchLayer,px_int depth)
 {
 	px_int i;
+	/* A walk that does not finish inside the layer count is already a cycle. */
+	if (!pLayer||depth<=0)
+	{
+		return PX_TRUE;
+	}
 	for (i=0;i<PX_LIVE_LAYER_MAX_LINK_NODE;i++)
 	{
 		PX_LiveLayer *pSubLinkLayer=PX_LiveFrameworkGetLayerChild(plive,pLayer,pLayer->child_index[i]);
 
-		if (pSubLinkLayer==PX_NULL)
+		if (!pSubLinkLayer)
 		{
-			return PX_FALSE;
+			break;
 		}
-
 		if (pSubLinkLayer==pSearchLayer)
 		{
 			return PX_TRUE;
 		}
-		else
+		if (PX_LiveFrameworkLinkLayerSearchSubLayerLimited(plive,pSubLinkLayer,pSearchLayer,depth-1))
 		{
-			if(pSubLinkLayer!=PX_NULL)
-			return PX_LiveFrameworkLinkLayerSearchSubLayer(plive,pSubLinkLayer,pSearchLayer);
+			return PX_TRUE;
 		}
 	}
 	return PX_FALSE;
 }
 
+px_bool PX_LiveFrameworkLinkLayerSearchSubLayer(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *pSearchLayer)
+{
+	px_int depth=plive->layers.size;
+	if (depth<1)
+	{
+		depth=1;
+	}
+	return PX_LiveFrameworkLinkLayerSearchSubLayerLimited(plive,pLayer,pSearchLayer,depth);
+}
+
 px_void PX_LiveFrameworkLinkLayer(PX_LiveFramework *plive,PX_LiveLayer *pLayer,PX_LiveLayer *linkLayer)
 {
 	px_int i;
-	if (pLayer==linkLayer)
+	if (!pLayer||!linkLayer||pLayer==linkLayer)
 	{
 		return;
 	}
 
+	/* linkLayer is the new child. Reject when the new parent already sits in its subtree. */
+	if (PX_LiveFrameworkLinkLayerSearchSubLayer(plive,linkLayer,pLayer))
+	{
+		return;
+	}
 	if (PX_LiveFrameworkLinkLayerSearchSubLayer(plive,pLayer,pLayer))
 	{
 		return;
@@ -3478,13 +3514,34 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 		//////////////////////////////////////////////////////////////////////////
 		plive->mp=mp;
 		PX_LiveRealtimeInitialize(&plive->realtime,mp);
-		if(!PX_VectorInitialize(mp,&plive->layers,sizeof(PX_LiveLayer),pReadLiveFrameworkAttributes->layerCount))return PX_FALSE;
+		if (pReadLiveFrameworkAttributes->layerCount<0||
+			pReadLiveFrameworkAttributes->textureCount<0||
+			pReadLiveFrameworkAttributes->animationCount<0||
+			(px_uint64)pReadLiveFrameworkAttributes->layerCount*sizeof(PX_LiveLayer)>0x7fffffffu||
+			(px_uint64)pReadLiveFrameworkAttributes->textureCount*sizeof(PX_LiveTexture)>0x7fffffffu||
+			(px_uint64)pReadLiveFrameworkAttributes->animationCount*sizeof(PX_LiveAnimation)>0x7fffffffu)
+		{
+			goto _ERROR;
+		}
+		if(!PX_VectorInitialize(mp,&plive->layers,sizeof(PX_LiveLayer),pReadLiveFrameworkAttributes->layerCount))goto _ERROR;
+		if (pReadLiveFrameworkAttributes->layerCount>0)
+		{
+			PX_memset(plive->layers.data,0,sizeof(PX_LiveLayer)*(px_uint)pReadLiveFrameworkAttributes->layerCount);
+		}
 		plive->layers.size=pReadLiveFrameworkAttributes->layerCount;
 
-		if(!PX_VectorInitialize(mp,&plive->livetextures,sizeof(PX_LiveTexture),pReadLiveFrameworkAttributes->textureCount))return PX_FALSE;
+		if(!PX_VectorInitialize(mp,&plive->livetextures,sizeof(PX_LiveTexture),pReadLiveFrameworkAttributes->textureCount))goto _ERROR;
+		if (pReadLiveFrameworkAttributes->textureCount>0)
+		{
+			PX_memset(plive->livetextures.data,0,sizeof(PX_LiveTexture)*(px_uint)pReadLiveFrameworkAttributes->textureCount);
+		}
 		plive->livetextures.size=pReadLiveFrameworkAttributes->textureCount;
 
-		if(!PX_VectorInitialize(mp,&plive->liveAnimations,sizeof(PX_LiveAnimation),pReadLiveFrameworkAttributes->animationCount))return PX_FALSE;
+		if(!PX_VectorInitialize(mp,&plive->liveAnimations,sizeof(PX_LiveAnimation),pReadLiveFrameworkAttributes->animationCount))goto _ERROR;
+		if (pReadLiveFrameworkAttributes->animationCount>0)
+		{
+			PX_memset(plive->liveAnimations.data,0,sizeof(PX_LiveAnimation)*(px_uint)pReadLiveFrameworkAttributes->animationCount);
+		}
 		plive->liveAnimations.size=pReadLiveFrameworkAttributes->animationCount;
 
 		plive->reg_animation=0;
@@ -3525,9 +3582,14 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 				px_int k;
 				//import live texture structure
 				PX_LiveTextureImportInfo *pLiveTextureImportInfo;
+				if (rOffset<0||rOffset>size||size-rOffset<(px_int)sizeof(PX_LiveTextureImportInfo))
+					goto _ERROR;
 				pLiveTextureImportInfo=((PX_LiveTextureImportInfo *)(bBuffer+rOffset));
 				PX_memset(pTexture,0,sizeof(PX_LiveTexture));
 
+				if (pLiveTextureImportInfo->width<=0||pLiveTextureImportInfo->height<=0||
+					(px_int64)pLiveTextureImportInfo->width*(px_int64)pLiveTextureImportInfo->height>(px_int64)0x7fffffff/4)
+					goto _ERROR;
 				if(!PX_TextureCreate(mp,&pTexture->Texture,pLiveTextureImportInfo->width,pLiveTextureImportInfo->height))
 					goto _ERROR;
 				PX_memcpy(pTexture->id,pLiveTextureImportInfo->id,sizeof(pTexture->id));
@@ -3536,6 +3598,11 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 
 				rOffset+=sizeof(PX_LiveTextureImportInfo);if(rOffset>size) 
 					goto _ERROR;
+				{
+					px_int64 pixelBytes=(px_int64)pTexture->Texture.width*(px_int64)pTexture->Texture.height*(px_int64)sizeof(px_color);
+					if ((px_int64)rOffset+pixelBytes>(px_int64)size)
+						goto _ERROR;
+				}
 				//import texture data
 				for (k = 0; k < pTexture->Texture.width * pTexture->Texture.height; k++)
 				{
@@ -3572,7 +3639,9 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 		for (i=0;i<plive->layers.size;i++)
 		{
 			PX_LiveLayer *pLayer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
-			PX_LiveFramework_LayerExportInfo *pReadLayer=(PX_LiveFramework_LayerExportInfo *)(bBuffer+rOffset);
+			PX_LiveFramework_LayerExportInfo *pReadLayer;
+			if (rOffset<0||rOffset>size||size-rOffset<(px_int)sizeof(PX_LiveFramework_LayerExportInfo)) goto _ERROR;
+			pReadLayer=(PX_LiveFramework_LayerExportInfo *)(bBuffer+rOffset);
 			rOffset+=sizeof(PX_LiveFramework_LayerExportInfo);if(rOffset>size) goto _ERROR;
 
 			PX_memset(pLayer,0,sizeof(PX_LiveLayer));
@@ -3589,6 +3658,7 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 			pLayer->rel_endLocalScale=1;
 			pLayer->visible=PX_TRUE;
 
+			if (pReadLayer->triangleCount<0||pReadLayer->verticesCount<0) goto _ERROR;
 			if(!PX_VectorInitialize(mp,&pLayer->triangles,sizeof(PX_Delaunay_Triangle),pReadLayer->triangleCount)) 
 				goto _ERROR;
 			pLayer->triangles.size=pReadLayer->triangleCount;
@@ -3613,15 +3683,25 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 			//import layer triangles
 			do 
 			{
-				PX_memcpy(pLayer->triangles.data,bBuffer+rOffset,pLayer->triangles.nodesize*pLayer->triangles.size);
-				rOffset+=pLayer->triangles.nodesize*pLayer->triangles.size;if(rOffset>size) goto _ERROR;
+				px_int64 meshBytes=(px_int64)pLayer->triangles.nodesize*(px_int64)pLayer->triangles.size;
+				if (meshBytes<0||(px_int64)rOffset+meshBytes>(px_int64)size) goto _ERROR;
+				if (meshBytes>0)
+				{
+					PX_memcpy(pLayer->triangles.data,bBuffer+rOffset,(px_uint)meshBytes);
+				}
+				rOffset+=(px_int)meshBytes;
 			} while (0);
 
 			//import layer vertex
 			do 
 			{
-				PX_memcpy(pLayer->vertices.data,bBuffer+rOffset,pLayer->vertices.nodesize*pLayer->vertices.size);
-				rOffset+=pLayer->vertices.nodesize*pLayer->vertices.size;if(rOffset>size) goto _ERROR;
+				px_int64 meshBytes=(px_int64)pLayer->vertices.nodesize*(px_int64)pLayer->vertices.size;
+				if (meshBytes<0||(px_int64)rOffset+meshBytes>(px_int64)size) goto _ERROR;
+				if (meshBytes>0)
+				{
+					PX_memcpy(pLayer->vertices.data,bBuffer+rOffset,(px_uint)meshBytes);
+				}
+				rOffset+=(px_int)meshBytes;
 			} while (0);
 		}
 	} while (0);
@@ -3643,12 +3723,19 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 			//import Live Animation structure
 			do 
 			{
-				PX_LiveAnimationImportInfo *pLiveAnimationImport=(PX_LiveAnimationImportInfo *)(bBuffer+rOffset);
+				PX_LiveAnimationImportInfo *pLiveAnimationImport;
+				if (rOffset<0||rOffset>size||size-rOffset<(px_int)sizeof(PX_LiveAnimationImportInfo)) goto _ERROR;
+				pLiveAnimationImport=(PX_LiveAnimationImportInfo *)(bBuffer+rOffset);
 				rOffset+=sizeof(PX_LiveAnimationImportInfo);if(rOffset>size) goto _ERROR;
 
 				PX_memcpy(pAnimation->id,pLiveAnimationImport->id,sizeof(pAnimation->id));
 
+				if (pLiveAnimationImport->size<0) goto _ERROR;
 				if(!PX_VectorInitialize(mp,&pAnimation->framesMemPtr,sizeof(px_void *),pLiveAnimationImport->size))goto _ERROR;
+				if (pLiveAnimationImport->size>0)
+				{
+					PX_memset(pAnimation->framesMemPtr.data,0,sizeof(px_void *)*(px_uint)pLiveAnimationImport->size);
+				}
 				pAnimation->framesMemPtr.size=pLiveAnimationImport->size;
 			} while (0);
 
@@ -3663,8 +3750,11 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 					px_int32 payloadsize;
 					PX_LiveAnimationFrameHeader *pheader;
 					ppdata=PX_VECTORAT(px_void*,&pAnimation->framesMemPtr,j);
+					if (rOffset<0||rOffset>size||size-rOffset<(px_int)sizeof(PX_LiveAnimationFrameHeader)) goto _ERROR;
 					pheader=(PX_LiveAnimationFrameHeader *)(bBuffer+rOffset);
+					if (pheader->size<0) goto _ERROR;
 					payloadsize=sizeof(PX_LiveAnimationFrameHeader)+pheader->size;
+					if ((px_int64)rOffset+(px_int64)payloadsize>(px_int64)size) goto _ERROR;
 
 					*ppdata=MP_Malloc(mp,payloadsize);
 					if(*ppdata==PX_NULL) goto _ERROR;

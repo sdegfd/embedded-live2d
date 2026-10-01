@@ -154,12 +154,13 @@ px_void PX_Object_LabelSetText( PX_Object *pObject,const px_char *Text )
 	pLabel= PX_Object_GetLabel(pObject);
 	if(TextLen>PX_strlen(pLabel->Text))
 	{
-		MP_Free(pObject->mp,pLabel->Text);
-		pLabel->Text=(px_char *)MP_Malloc(pObject->mp,TextLen+1);
-		if (!pLabel->Text)
+		px_char *newText=(px_char *)MP_Malloc(pObject->mp,TextLen+1);
+		if (!newText)
 		{
-			PX_ERROR("Text create out of memories");
+			return;
 		}
+		MP_Free(pObject->mp,pLabel->Text);
+		pLabel->Text=newText;
 		PX_strcpy(pLabel->Text,Text,TextLen+1);
 	}
 	else

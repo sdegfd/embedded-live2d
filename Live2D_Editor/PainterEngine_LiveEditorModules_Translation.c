@@ -1,4 +1,5 @@
 #include "PainterEngine_LiveEditorModules_Translation.h"
+#include "PainterEngine_LiveEditorModules_Display.h"
 
 
 
@@ -8,6 +9,17 @@ px_void PX_LiveEditorModule_TranslationOnCursorDown(PX_Object *pObject,PX_Object
 	px_float x,y,livex,livey,livewidth,liveheight;
 	x=PX_Object_Event_GetCursorX(e);
 	y=PX_Object_Event_GetCursorY(e);
+	/* The zoomed model rectangle covers the toolbar, but those pixels belong to the controls drawn on top.
+	   Releasing focus lets this same click continue to the toolbar. */
+	if (PX_LiveEditorDisplay_OverUi(pObject,e,(px_float)pTranslation->pruntime->surface_width,(px_float)pTranslation->pruntime->surface_height))
+	{
+		pTranslation->bSelect=PX_FALSE;
+		if (pObject->OnFocus)
+		{
+			PX_ObjectReleaseFocus(pObject);
+		}
+		return;
+	}
 	livex=pTranslation->pLiveFramework->refer_x;
 	livey=pTranslation->pLiveFramework->refer_y;
 	livewidth=(px_float)pTranslation->pLiveFramework->width;
@@ -53,6 +65,25 @@ px_void PX_LiveEditorModule_TranslationOnCursorDrag(PX_Object *pObject,PX_Object
 
 }
 
+/* Clicking the model focuses this object, so the display stops receiving the wheel. */
+px_void PX_LiveEditorModule_TranslationOnCursorWheel(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
+{
+	PX_LiveEditorModule_Translation *pTranslation=(PX_LiveEditorModule_Translation *)pObject->pObjectDesc[0];
+	if (PX_LiveEditorDisplay_OverUi(pObject,e,(px_float)pTranslation->pruntime->surface_width,(px_float)pTranslation->pruntime->surface_height))
+	{
+		if (pObject->OnFocus)
+		{
+			PX_ObjectReleaseFocus(pObject);
+		}
+		return;
+	}
+	if (!pObject->OnFocus)
+	{
+		return;
+	}
+	PX_LiveEditorDisplay_HandleWheel(pObject,pTranslation->pLiveFramework,pTranslation->pruntime,e);
+}
+
 
 PX_Object * PX_LiveEditorModule_TranslationInstall(PX_Object *pparent,PX_Runtime *pruntime,PX_FontModule *fm,PX_LiveFramework *pLiveFramework,PX_Json *pLanguageJson)
 {
@@ -66,6 +97,7 @@ PX_Object * PX_LiveEditorModule_TranslationInstall(PX_Object *pparent,PX_Runtime
 
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORDOWN,PX_LiveEditorModule_TranslationOnCursorDown,PX_NULL);
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORDRAG,PX_LiveEditorModule_TranslationOnCursorDrag,PX_NULL);
+	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORWHEEL,PX_LiveEditorModule_TranslationOnCursorWheel,PX_NULL);
 	return pObject;
 }
 

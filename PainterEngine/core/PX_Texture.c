@@ -55,7 +55,10 @@ px_bool PX_TextureCreateFromMemory(px_memorypool *mp,px_void *data,px_int size,p
 		if (PX_TextureCreate(mp, tex, width, height))
 		{
 			if (!PX_PngToRenderBuffer(mp, (px_byte*)data, size, tex))
+			{
+				PX_TextureFree(tex);
 				return PX_FALSE;
+			}
 			return PX_TRUE;
 		}
 		else
@@ -609,9 +612,9 @@ px_void PX_TextureGetVisibleRange(px_texture *ptexture,px_int *pLeft,px_int *pRi
 {
 	px_int x=0,y=0;
 	px_int left=ptexture->width-1,right=0,top=ptexture->height-1,bottom=0;
-	for (y=0;y<ptexture->height-1;y++)
+	for (y=0;y<ptexture->height;y++)
 	{
-		for (x=0;x<ptexture->width-1;x++)
+		for (x=0;x<ptexture->width;x++)
 		{
 			if (PX_SurfaceGetPixel(ptexture,x,y)._argb.a)
 			{

@@ -158,8 +158,6 @@ px_void PX_LiveEditorModule_LiveControllerLayerListItem_OnLinkIdConfirm(PX_Objec
 	PX_Object *pLiveControllerObject=(PX_Object *)pListItemObject->User_ptr;
 	PX_LiveEditorModule_LiveController *pLiveController=(PX_LiveEditorModule_LiveController *)pLiveControllerObject->pObjectDesc[0];
 	PX_LiveLayer *pLayer=(PX_LiveLayer *)PX_Object_GetListItem(pListItemObject)->pdata;
-	px_int index;
-	PX_LiveTexture *pLiveTexture;
 	px_char *id;
 
 	id=PX_Object_MessageBoxGetInput(pmessagebox);
@@ -169,19 +167,12 @@ px_void PX_LiveEditorModule_LiveControllerLayerListItem_OnLinkIdConfirm(PX_Objec
 		pLayer->LinkTextureIndex=-1;
 		pLayer->RenderTextureIndex=-1;
 	}
+	else if (!PX_LiveFrameworkLinkLayerTexture(pLiveController->pLiveFramework,pLayer->id,id))
+	{
+		PX_Object_MessageBoxAlertOk(pLiveController->messagebox,PX_JsonGetString(pLiveController->pLanguageJson,"livecontroller.texture not found"),0,0);
+	}
 	else
 	{
-		index=PX_LiveFrameworkGetLiveTextureIndexById(pLiveController->pLiveFramework,id);
-		if (index==-1)
-		{
-			PX_Object_MessageBoxAlertOk(pLiveController->messagebox,PX_JsonGetString(pLiveController->pLanguageJson,"livecontroller.texture not found"),0,0);
-			return;
-		}
-		pLayer->LinkTextureIndex=index;
-		pLayer->RenderTextureIndex=index;
-		pLiveTexture=PX_LiveFrameworkGetLiveTexture(pLiveController->pLiveFramework,index);
-		pLayer->keyPoint.x=pLiveTexture->textureOffsetX+pLiveTexture->Texture.width/2.0f;
-		pLayer->keyPoint.y=pLiveTexture->textureOffsetY+pLiveTexture->Texture.height/2.0f;
 		PX_LiveFrameworkUpdateLayerSourceVerticesUV(pLiveController->pLiveFramework,pLayer);
 	}
 
@@ -352,7 +343,7 @@ px_bool PX_LiveEditorModule_LiveControllerLayerListItemOnCreate(px_memorypool *m
 	pObject=PX_Object_PushButtonCreate(mp,ItemObject,68+18*0,36,16,16,"", pLayerController->fontmodule);//z
 	PX_Object_PushButtonSetShape(pObject,&pLayerController->shape_link);
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_EXECUTE,PX_LiveEditorModule_LiveControllerLayerListItem_OnLinkButton,ItemObject);
-	PX_Object_PushButtonSetTips(pObject, PX_JsonGetString(pLayerController->pLanguageJson, "tips.linkkey"));
+	PX_Object_PushButtonSetTips(pObject, PX_JsonGetString(pLayerController->pLanguageJson, "tips.linktexture"));
 	//z
 	pObject=PX_Object_PushButtonCreate(mp,ItemObject,68+18*1,36,16,16,"z", 0);//z
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_EXECUTE,PX_LiveEditorModule_LiveControllerLayerListItem_OnZButton,ItemObject);
@@ -474,6 +465,72 @@ PX_OBJECT_UPDATE_FUNCTION(PX_LiveEditorModule_LayerControllerUpdate)
 		PX_ObjectUpdate(pLiveController->pRealtimeController,elapsed);
 	}
 
+	/* Visibility first. A page hidden while layers or textures changed must
+	   rebuild in the same frame it is shown. Tab clicks must not clear the
+	   lists: the signature cache would then leave the emptied page blank. */
+	switch (pLiveController->state)
+	{
+	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_LAYER:
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_COLOR(255,16,16,16));
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+
+		pLiveController->pLayerList->Visible=PX_TRUE;
+		pLiveController->pResourceList->Visible=PX_FALSE;
+		pLiveController->pAnimationList->Visible=PX_FALSE;
+		
+		pLiveController->button_newlayer->Visible=PX_TRUE;
+		pLiveController->button_linkkey->Visible=PX_TRUE;
+		pLiveController->button_importImage->Visible=PX_FALSE;
+		pLiveController->button_newanimation->Visible=PX_FALSE;
+		break;
+	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_RESOURCE:
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_COLOR(255,16,16,16));
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+
+		pLiveController->pLayerList->Visible=PX_FALSE;
+		pLiveController->pResourceList->Visible=PX_TRUE;
+		pLiveController->pAnimationList->Visible=PX_FALSE;
+
+		pLiveController->button_newlayer->Visible=PX_FALSE;
+		pLiveController->button_linkkey->Visible=PX_FALSE;
+		pLiveController->button_importImage->Visible=PX_TRUE;
+		pLiveController->button_newanimation->Visible=PX_FALSE;
+		break;
+	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_ANIMATION:
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_COLOR(255,16,16,16));
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+
+
+		pLiveController->pLayerList->Visible=PX_FALSE;
+		pLiveController->pResourceList->Visible=PX_FALSE;
+		pLiveController->pAnimationList->Visible=PX_TRUE;
+
+		pLiveController->button_newlayer->Visible=PX_FALSE;
+		pLiveController->button_linkkey->Visible=PX_FALSE;
+		pLiveController->button_importImage->Visible=PX_FALSE;
+		pLiveController->button_newanimation->Visible=PX_TRUE;
+		break;
+	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_REALTIME:
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
+		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_COLOR(255,16,16,16));
+		pLiveController->pLayerList->Visible=PX_FALSE;
+		pLiveController->pResourceList->Visible=PX_FALSE;
+		pLiveController->pAnimationList->Visible=PX_FALSE;
+		pLiveController->button_newlayer->Visible=PX_FALSE;
+		pLiveController->button_linkkey->Visible=PX_FALSE;
+		pLiveController->button_importImage->Visible=PX_FALSE;
+		pLiveController->button_newanimation->Visible=PX_FALSE;
+		break;
+	}
+
 	//////////////////////////////////////////////////////////////////////////
 	//layer
 	if (pLiveController->pLayerList->Visible)
@@ -556,70 +613,6 @@ PX_OBJECT_UPDATE_FUNCTION(PX_LiveEditorModule_LayerControllerUpdate)
 			pLiveController->animationListReady=PX_TRUE;
 		}
 	}
-
-
-	switch (pLiveController->state)
-	{
-	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_LAYER:
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_COLOR(255,16,16,16));
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-
-		pLiveController->pLayerList->Visible=PX_TRUE;
-		pLiveController->pResourceList->Visible=PX_FALSE;
-		pLiveController->pAnimationList->Visible=PX_FALSE;
-		
-		pLiveController->button_newlayer->Visible=PX_TRUE;
-		pLiveController->button_linkkey->Visible=PX_TRUE;
-		pLiveController->button_importImage->Visible=PX_FALSE;
-		pLiveController->button_newanimation->Visible=PX_FALSE;
-		break;
-	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_RESOURCE:
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_COLOR(255,16,16,16));
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-
-		pLiveController->pLayerList->Visible=PX_FALSE;
-		pLiveController->pResourceList->Visible=PX_TRUE;
-		pLiveController->pAnimationList->Visible=PX_FALSE;
-
-		pLiveController->button_newlayer->Visible=PX_FALSE;
-		pLiveController->button_linkkey->Visible=PX_FALSE;
-		pLiveController->button_importImage->Visible=PX_TRUE;
-		pLiveController->button_newanimation->Visible=PX_FALSE;
-		break;
-	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_ANIMATION:
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_COLOR(255,16,16,16));
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-
-
-		pLiveController->pLayerList->Visible=PX_FALSE;
-		pLiveController->pResourceList->Visible=PX_FALSE;
-		pLiveController->pAnimationList->Visible=PX_TRUE;
-
-		pLiveController->button_newlayer->Visible=PX_FALSE;
-		pLiveController->button_linkkey->Visible=PX_FALSE;
-		pLiveController->button_importImage->Visible=PX_FALSE;
-		pLiveController->button_newanimation->Visible=PX_TRUE;
-		break;
-	case PX_LIVEEDITORMODULE_LIVECONTROLLER_STATE_REALTIME:
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewLayer,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewResource,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewAnimation,PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR);
-		PX_Object_PushButtonSetBackgroundColor(pLiveController->button_viewRealtime,PX_COLOR(255,16,16,16));
-		pLiveController->pLayerList->Visible=PX_FALSE;
-		pLiveController->pResourceList->Visible=PX_FALSE;
-		pLiveController->pAnimationList->Visible=PX_FALSE;
-		pLiveController->button_newlayer->Visible=PX_FALSE;
-		pLiveController->button_linkkey->Visible=PX_FALSE;
-		pLiveController->button_importImage->Visible=PX_FALSE;
-		pLiveController->button_newanimation->Visible=PX_FALSE;
-		break;
-	}
 }
 
 
@@ -647,7 +640,6 @@ px_void PX_LiveEditorModule_LiveController_OnButtonViewLayer(PX_Object *pObject,
 	pLiveController->pLiveFramework->showRange=PX_FALSE;
 	pLiveController->pLiveFramework->showRootHelperLine=PX_FALSE;
 
-	PX_Object_ListClear(pLiveController->pLayerList);
 	PX_LiveFrameworkStop(pLiveController->pLiveFramework);
 }
 px_void PX_LiveEditorModule_LiveController_OnButtonViewResources(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
@@ -666,7 +658,6 @@ px_void PX_LiveEditorModule_LiveController_OnButtonViewResources(PX_Object *pObj
 	pLiveController->pLiveFramework->showRange=PX_FALSE;
 	pLiveController->pLiveFramework->showRootHelperLine=PX_FALSE;
 
-	PX_Object_ListClear(pLiveController->pResourceList);
 	PX_LiveFrameworkStop(pLiveController->pLiveFramework);
 
 }
@@ -685,7 +676,6 @@ px_void PX_LiveEditorModule_LiveController_OnButtonViewAnimations(PX_Object *pOb
 	pLiveController->pLiveFramework->showlinker=PX_FALSE;
 	pLiveController->pLiveFramework->showRange=PX_FALSE;
 	pLiveController->pLiveFramework->showRootHelperLine=PX_FALSE;
-	PX_Object_ListClear(pLiveController->pAnimationList);
 	PX_LiveFrameworkStop(pLiveController->pLiveFramework);
 }
 
@@ -714,9 +704,6 @@ px_void PX_LiveEditorModule_LiveController_OnLayerIDConfirm(PX_Object *pObject,P
 {
 	PX_LiveEditorModule_LiveController *pLiveController=(PX_LiveEditorModule_LiveController *)(((PX_Object *)ptr)->pObjectDesc[0]);
 	px_char *id=PX_Object_MessageBoxGetInput(pObject);
-	px_int index;
-	PX_LiveTexture *pTexture;
-	PX_LiveLayer *pLayer;
 	if (PX_LiveFrameworkGetLayerById(pLiveController->pLiveFramework,id))
 	{
 		PX_Object_MessageBoxAlertOk(pObject,PX_JsonGetString(pLiveController->pLanguageJson,"livecontroller.repeat layer id"),PX_NULL,PX_NULL);
@@ -725,19 +712,12 @@ px_void PX_LiveEditorModule_LiveController_OnLayerIDConfirm(PX_Object *pObject,P
 	if(!PX_LiveFrameworkCreateLayer(pLiveController->pLiveFramework,id))
 	{
 		PX_Object_MessageBoxAlertOk(pObject,PX_JsonGetString(pLiveController->pLanguageJson,"livecontroller.could not create layer"),PX_NULL,PX_NULL);
-	}
-	pLayer=PX_LiveFrameworkGetLastCreateLayer(pLiveController->pLiveFramework);
-	pTexture=PX_LiveFrameworkGetLiveTextureById(pLiveController->pLiveFramework,id);
-	if (!pTexture)
-	{
-		pLayer->LinkTextureIndex=-1;
 		return;
 	}
-
-	index=PX_LiveFrameworkGetLiveTextureIndexById(pLiveController->pLiveFramework,id);
-	pLayer->LinkTextureIndex=index;
-	pLayer->keyPoint.x=pTexture->textureOffsetX+pTexture->Texture.width/2.0f;
-	pLayer->keyPoint.y=pTexture->textureOffsetY+pTexture->Texture.height/2.0f;
+	if (PX_LiveFrameworkGetLiveTextureById(pLiveController->pLiveFramework,id))
+	{
+		PX_LiveFrameworkLinkLayerTexture(pLiveController->pLiveFramework,id,id);
+	}
 
 }
 
@@ -824,6 +804,8 @@ PX_Object * PX_LiveEditorModule_LiveControllerInstall(PX_Object *pparent,PX_Runt
 	pLiveController->window_widget=PX_Object_WidgetCreate(&pruntime->mp_dynamic,pObject,pruntime->surface_width-284,64,256,392,"",PX_NULL);
 	if(!pLiveController->window_widget)return PX_FALSE;
 	PX_Object_WidgetShowHideCloseButton(pLiveController->window_widget,PX_FALSE);
+	/* This panel is buttons and lists. Leaving focus on it swallows the canvas wheel. */
+	PX_Object_WidgetSetFocusWidget(pLiveController->window_widget,PX_FALSE);
 	if(!PX_ShapeCreateFromMemory(&pruntime->mp_static,(px_void *)eye_traw,sizeof(eye_traw),&pLiveController->shape_eye)) return PX_FALSE;
 	if(!PX_ShapeCreateFromMemory(&pruntime->mp_static,(px_void *)eye_no_traw,sizeof(eye_no_traw),&pLiveController->shape_eye_no)) return PX_FALSE;
 	if(!PX_ShapeCreateFromMemory(&pruntime->mp_static,(px_void *)bindbone_traw,sizeof(bindbone_traw),&pLiveController->shape_bindbone)) return PX_FALSE;

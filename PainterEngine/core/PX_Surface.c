@@ -4,7 +4,13 @@ px_bool PX_SurfaceCreate(px_memorypool *mp,px_int width,px_int height,px_surface
 {
 	if (width>0&&height>0)
 	{
-		px_void* p = MP_Malloc(mp, height * width * sizeof(px_color));
+		px_int64 bytes=(px_int64)width*(px_int64)height*(px_int64)sizeof(px_color);
+		px_void* p;
+		if (bytes<=0||bytes>0x7fffffff)
+		{
+			return PX_FALSE;
+		}
+		p = MP_Malloc(mp,(px_uint)bytes);
 		if (p != PX_NULL)
 		{
 			surface->height = height;
@@ -33,7 +39,11 @@ px_void PX_SurfaceUnlimit(px_surface* psurface)
 
 px_void PX_SurfaceFree(px_surface *psurface)
 {
-	if (psurface->surfaceBuffer==PX_NULL|| psurface->MP==PX_NULL)
+	if (psurface->surfaceBuffer==PX_NULL&&psurface->MP==PX_NULL)
+	{
+		return;
+	}
+	if (psurface->surfaceBuffer==PX_NULL||psurface->MP==PX_NULL)
 	{
 		PX_ASSERT();
 		return;

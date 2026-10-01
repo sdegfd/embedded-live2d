@@ -1,5 +1,26 @@
 #include "PX_Memory.h"
 
+static px_bool PX_MemoryNextAlloc(px_int length,px_int *allocsize)
+{
+	px_int shl=0;
+	if (length<=0||!allocsize)
+	{
+		return PX_FALSE;
+	}
+	while (shl<30)
+	{
+		px_int next;
+		shl++;
+		next=1<<shl;
+		if (next>length)
+		{
+			*allocsize=next;
+			return PX_TRUE;
+		}
+	}
+	return PX_FALSE;
+}
+
 px_void PX_MemoryInitialize(px_memorypool *mp,px_memory *memory)
 {
 	PX_memset(memory, 0, sizeof(px_memory));
@@ -18,22 +39,35 @@ px_bool PX_MemoryInsert(px_memory* memory, px_int offset, const px_void* buffer,
 px_bool PX_MemoryCat(px_memory *memory,const px_void *buffer,px_int size)
 {
 	px_byte *old;
-	px_int length,shl;
+	px_int length;
 
 	if (size==0)
 	{
 		return PX_TRUE;
 	}
 
+	if (size<0||memory->usedsize>0x7fffffff-size)
+	{
+		return PX_FALSE;
+	}
 	if (memory->usedsize+size>memory->allocsize)
 	{
-		shl=0;
+		px_int oldAlloc;
 		old=memory->buffer;
+		oldAlloc=memory->allocsize;
 		length=memory->usedsize+size;
-		while ((px_int)(1<<++shl)<=length);
-		memory->allocsize=(1<<shl);
+		if (!PX_MemoryNextAlloc(length,&memory->allocsize))
+		{
+			memory->allocsize=oldAlloc;
+			return PX_FALSE;
+		}
 		memory->buffer=(px_byte*)MP_Malloc(memory->mp,memory->allocsize);
-		if(!memory->buffer) return PX_FALSE;
+		if(!memory->buffer)
+		{
+			memory->buffer=old;
+			memory->allocsize=oldAlloc;
+			return PX_FALSE;
+		}
 		if(old)
 		PX_memcpy(memory->buffer,old,memory->usedsize);
 
@@ -54,22 +88,35 @@ px_bool PX_MemoryCat(px_memory *memory,const px_void *buffer,px_int size)
 px_bool PX_MemoryCatRepeatByte(px_memory* memory, px_byte code, px_int size)
 {
 	px_byte* old;
-	px_int length, shl;
+	px_int length;
 
 	if (size == 0)
 	{
 		return PX_TRUE;
 	}
+	if (size<0||memory->usedsize>0x7fffffff-size)
+	{
+		return PX_FALSE;
+	}
 
 	if (memory->usedsize + size > memory->allocsize)
 	{
-		shl = 0;
+		px_int oldAlloc;
 		old = memory->buffer;
+		oldAlloc = memory->allocsize;
 		length = memory->usedsize + size;
-		while ((px_int)(1 << ++shl) <= length);
-		memory->allocsize = (1 << shl);
+		if (!PX_MemoryNextAlloc(length,&memory->allocsize))
+		{
+			memory->allocsize=oldAlloc;
+			return PX_FALSE;
+		}
 		memory->buffer = (px_byte*)MP_Malloc(memory->mp, memory->allocsize);
-		if (!memory->buffer) return PX_FALSE;
+		if (!memory->buffer)
+		{
+			memory->buffer=old;
+			memory->allocsize=oldAlloc;
+			return PX_FALSE;
+		}
 		if (old)
 			PX_memcpy(memory->buffer, old, memory->usedsize);
 
@@ -193,14 +240,23 @@ px_bool PX_MemoryResize(px_memory *memory,px_int size)
 		else
 		{
 			px_byte* old;
-			px_int length, shl;
-			shl = 0;
+			px_int length;
+			px_int oldAlloc;
 			old = memory->buffer;
+			oldAlloc = memory->allocsize;
 			length =size;
-			while ((px_int)(1 << ++shl) <= length);
-			memory->allocsize = (1 << shl);
+			if (length<=0||!PX_MemoryNextAlloc(length,&memory->allocsize))
+			{
+				memory->allocsize=oldAlloc;
+				return PX_FALSE;
+			}
 			memory->buffer = (px_byte*)MP_Malloc(memory->mp, memory->allocsize);
-			if (!memory->buffer) return PX_FALSE;
+			if (!memory->buffer)
+			{
+				memory->buffer=old;
+				memory->allocsize=oldAlloc;
+				return PX_FALSE;
+			}
 			if (old)
 			{
 				PX_memcpy(memory->buffer, old, memory->usedsize);
@@ -277,19 +333,28 @@ px_void PX_MemoryLeft(px_memory* memory,px_int trimsize)
 px_bool PX_MemoryCopy(px_memory *memory,const px_void *buffer,px_int startoffset,px_int size)
 {
 	px_byte *old;
-	px_int length,shl;
+	px_int length;
 
+	if (size<0||startoffset<0||startoffset>0x7fffffff-size)
+	{
+		return PX_FALSE;
+	}
 	if (startoffset+size>memory->allocsize)
 	{
-		shl=0;
+		px_int oldAlloc;
 		old=memory->buffer;
+		oldAlloc=memory->allocsize;
 		length=startoffset+size;
-		while ((px_int)(1<<++shl)<=length);
-		memory->allocsize=(1<<shl);
+		if (!PX_MemoryNextAlloc(length,&memory->allocsize))
+		{
+			memory->allocsize=oldAlloc;
+			return PX_FALSE;
+		}
 		memory->buffer=(px_byte*)MP_Malloc(memory->mp,memory->allocsize);
 		if (!memory->buffer)
 		{
-			MP_Free(memory->mp,old);
+			memory->buffer=old;
+			memory->allocsize=oldAlloc;
 			return PX_FALSE;
 		}
 		if(old)

@@ -289,7 +289,7 @@ int PX_FileGetDirectoryFileCount(const char path[],PX_FILEENUM_TYPE type,const c
 		{
 		case PX_FILEENUM_TYPE_ANY:
 			{
-				if (filter[0]&&FindFileData.dwFileAttributes !=FILE_ATTRIBUTE_DIRECTORY)
+				if (filter[0]&&(FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)==0)
 				{
 					const char *pFilter=filter;
 					while (pFilter[0])
@@ -311,7 +311,7 @@ int PX_FileGetDirectoryFileCount(const char path[],PX_FILEENUM_TYPE type,const c
 		case PX_FILEENUM_TYPE_DEVICE:
 		case PX_FILEENUM_TYPE_FILE:
 			{
-				if (FindFileData.dwFileAttributes !=FILE_ATTRIBUTE_DIRECTORY)
+				if ((FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)==0)
 				{
 					if (filter[0])
 					{
@@ -335,7 +335,7 @@ int PX_FileGetDirectoryFileCount(const char path[],PX_FILEENUM_TYPE type,const c
 			break;
 		case PX_FILEENUM_TYPE_FOLDER:
 			{
-				if (FindFileData.dwFileAttributes ==FILE_ATTRIBUTE_DIRECTORY)
+				if ((FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=0)
 				{
 					count++;
 				}
@@ -417,7 +417,7 @@ int PX_FileGetDirectoryFileName(const char path[],int count,char FileName[][260]
 		{
 		case PX_FILEENUM_TYPE_ANY:
 			{
-				if (filter[0]&&FindFileData.dwFileAttributes !=FILE_ATTRIBUTE_DIRECTORY)
+				if (filter[0]&&(FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)==0)
 				{
 					const char *pFilter=filter;
 					while (pFilter[0])
@@ -440,7 +440,7 @@ int PX_FileGetDirectoryFileName(const char path[],int count,char FileName[][260]
 		case PX_FILEENUM_TYPE_DEVICE:
 		case PX_FILEENUM_TYPE_FILE:
 			{
-				if (FindFileData.dwFileAttributes !=FILE_ATTRIBUTE_DIRECTORY)
+				if ((FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)==0)
 				{
 					if (filter[0])
 					{
@@ -465,7 +465,7 @@ int PX_FileGetDirectoryFileName(const char path[],int count,char FileName[][260]
 			break;
 		case PX_FILEENUM_TYPE_FOLDER:
 			{
-				if (FindFileData.dwFileAttributes ==FILE_ATTRIBUTE_DIRECTORY)
+				if ((FindFileData.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=0)
 				{
 					strcpy_s(FileName[index],260,FindFileData.cFileName);
 					index++;

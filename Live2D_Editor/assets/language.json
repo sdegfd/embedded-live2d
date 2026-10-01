@@ -75,6 +75,7 @@
 	   "out of memory":"数据过大,内存不足",
 	   "could not export file":"错误:无法导出到目标文件",
 	   "path too long":"路径过长，未写入文件",
+	   "invalid name":"文件名无效，未写入文件",
 	   "verify failed":"导出内容无法重新导入，已保留原文件",
 	   "dirty baked":"有未烘焙的实时轴，文件里保存的是上一份烘焙结果",
 	   "succeeded":"导出成功"
@@ -167,7 +168,8 @@
 	{
 		"closedlink":"你不能设置一个闭环连接",
 		"reset":"重置",
-		"finish":"完成"
+		"finish":"完成",
+		"title":"连接控制点"
 	},
 	"framecontroller":
 	{
@@ -209,7 +211,8 @@
 		"down":"下移",
 		"trash":"删除",
 		"newlayer":"新图层",
-		"linkkey":"链接纹理",
+		"linktexture":"链接纹理",
+		"linkkey":"连接控制点",
 		"importImage":"导入图像",
 		"newanimation":"新建动画",
 		"changez":"改变z坐标",

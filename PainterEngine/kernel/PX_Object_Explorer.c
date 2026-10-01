@@ -569,12 +569,20 @@ px_void PX_Object_ExplorerRefresh(PX_Object *pObject)
 		pExp->func_getpathfoldername(path,count,FileNames,pExp->filter);
 		for (i=0;i<count;i++)
 		{
-			pExp->Items[i].bcursor=PX_FALSE;
-			pExp->Items[i].bFolder=PX_TRUE;
-			pExp->Items[i].bselect=PX_FALSE;
-			PX_strcpy(pExp->Items[i].name,FileNames[i],sizeof(pExp->Items[i].name));
+			if (PX_strequ(FileNames[i],".")||PX_strequ(FileNames[i],".."))
+			{
+				continue;
+			}
+			if (pExp->ItemCount>=PX_EXPLORER_MAX_ITEMS)
+			{
+				break;
+			}
+			pExp->Items[pExp->ItemCount].bcursor=PX_FALSE;
+			pExp->Items[pExp->ItemCount].bFolder=PX_TRUE;
+			pExp->Items[pExp->ItemCount].bselect=PX_FALSE;
+			PX_strcpy(pExp->Items[pExp->ItemCount].name,FileNames[i],sizeof(pExp->Items[pExp->ItemCount].name));
+			pExp->ItemCount++;
 		}
-		pExp->ItemCount+=count;
 
 		count=pExp->func_getpathfilecount(path,pExp->filter);
 		if (count>PX_EXPLORER_MAX_ITEMS-pExp->ItemCount)

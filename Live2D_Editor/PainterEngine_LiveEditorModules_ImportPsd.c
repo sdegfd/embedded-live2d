@@ -411,20 +411,30 @@ static px_bool PX_ImportPsd_Apply(PX_Object *pObject, PX_LiveEditorModule_Import
 			layerUndoCount++;
 
 			layer->visible = raster->visible ? PX_TRUE : PX_FALSE;
-			layer->LinkTextureIndex = textureIndex;
-			layer->RenderTextureIndex = textureIndex;
-			layer->keyPoint.z = z;
-			layer->currentKeyPoint.z = z;
-			if (layer->vertices.size == 0)
 			{
-				layer->keyPoint.x = (px_float)raster->left + raster->width / 2.0f;
-				layer->keyPoint.y = (px_float)raster->top + raster->height / 2.0f;
-				layer->currentKeyPoint.x = layer->keyPoint.x;
-				layer->currentKeyPoint.y = layer->keyPoint.y;
-			}
-			else
-			{
-				PX_LiveFrameworkUpdateLayerSourceVerticesUV(live, layer);
+				px_bool meshed = (layer->vertices.size != 0);
+				px_point savedKey = layer->keyPoint;
+				px_point savedTranslation = layer->rel_currentTranslation;
+				if (!PX_LiveFrameworkLinkLayerTexture(live, ids[i], ids[i]))
+				{
+					PX_ImportPsd_Undo(live, oldWidth, oldHeight, oldTextureCount, oldLayerCount, textureUndo, textureUndoCount, layerUndo, layerUndoCount);
+					PX_ImportPsd_Report(pObject, importer->pLanguageJson, "importpsd.Could not load");
+					return PX_FALSE;
+				}
+				if (meshed)
+				{
+					layer->keyPoint.x = savedKey.x;
+					layer->keyPoint.y = savedKey.y;
+					layer->rel_currentTranslation = savedTranslation;
+					PX_LiveFrameworkUpdateLayerSourceVerticesUV(live, layer);
+				}
+				layer->keyPoint.z = z;
+				layer->currentKeyPoint.z = z;
+				if (!meshed)
+				{
+					layer->currentKeyPoint.x = layer->keyPoint.x;
+					layer->currentKeyPoint.y = layer->keyPoint.y;
+				}
 			}
 		}
 	}

@@ -19,6 +19,15 @@ static px_void PX_LiveEditorImport_Report(PX_Object *pObject,PX_Json *pLanguageJ
 	PX_ObjectExecuteEvent(pObject->pParent,PX_OBJECT_BUILD_EVENT_STRING(PX_LIVEEDITORMODULE_IMPORTLIVE_EVENT_MESSAGE,content));
 }
 
+static px_void PX_LiveEditorImport_OnPoolError(px_void *ptr,PX_MEMORYPOOL_ERROR err)
+{
+	px_bool *oom = (px_bool *)ptr;
+	if (oom && err == PX_MEMORYPOOL_ERROR_OUTOFMEMORY)
+	{
+		*oom = PX_TRUE;
+	}
+}
+
 static PX_LIVEEDITOR_LIVECHECK PX_LiveEditorImport_Check(px_void *buffer,px_int size)
 {
 	px_uint poolBytes;
@@ -26,6 +35,7 @@ static PX_LIVEEDITOR_LIVECHECK PX_LiveEditorImport_Check(px_void *buffer,px_int 
 	px_memorypool pool;
 	PX_LiveFramework temp;
 	px_bool ok;
+	px_bool oom = PX_FALSE;
 	if (!buffer || size <= 0)
 	{
 		return PX_LIVEEDITOR_LIVECHECK_INVALID;
@@ -41,6 +51,7 @@ static PX_LIVEEDITOR_LIVECHECK PX_LiveEditorImport_Check(px_void *buffer,px_int 
 		return PX_LIVEEDITOR_LIVECHECK_OOM;
 	}
 	pool = MP_Create(block,poolBytes);
+	MP_ErrorCatch(&pool,PX_LiveEditorImport_OnPoolError,&oom);
 	PX_memset(&temp,0,sizeof(temp));
 	ok = PX_LiveFrameworkImport(&pool,&temp,buffer,size);
 	if (ok)
@@ -48,7 +59,11 @@ static PX_LIVEEDITOR_LIVECHECK PX_LiveEditorImport_Check(px_void *buffer,px_int 
 		PX_LiveFrameworkFree(&temp);
 	}
 	free(block);
-	return ok ? PX_LIVEEDITOR_LIVECHECK_OK : PX_LIVEEDITOR_LIVECHECK_INVALID;
+	if (ok)
+	{
+		return PX_LIVEEDITOR_LIVECHECK_OK;
+	}
+	return oom ? PX_LIVEEDITOR_LIVECHECK_OOM : PX_LIVEEDITOR_LIVECHECK_INVALID;
 }
 
 PX_Object * PX_LiveEditorModule_ImportLiveInstall(PX_Object *parent,PX_Runtime *pruntime,PX_FontModule *fm,PX_LiveFramework *pLiveFramework,PX_Json *pLanguageJson)

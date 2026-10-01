@@ -25,4 +25,5 @@ px_void PX_LiveEditorModule_ExportLiveUninstall(PX_Object *pObject);
 px_void PX_LiveEditorModule_ExportLiveSetPoseAccessor(PX_Object *pObject,PX_LiveEditorRealtimePoseAccessor *accessor);
 px_void PX_LiveEditorModule_ExportLiveEnable(PX_Object *pObject);
 px_void PX_LiveEditorModule_ExportLiveDisable(PX_Object *pObject);
+px_bool PX_LiveEditorModule_ExportLiveCapture(PX_LiveFramework *plive,px_byte **blockOut,px_memory *dataOut);
 #endif   

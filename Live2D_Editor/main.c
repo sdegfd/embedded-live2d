@@ -200,18 +200,14 @@ static px_bool PX_Object_GetRealtimePreviewChecksum(px_int *checksum)
 static px_bool PX_Object_LiveEditorLaunchRealtimePreview(PX_Object_LiveEditor *pApp)
 {
 #ifdef _WIN32
-	px_byte *cacheBuffer=PX_NULL;
-	px_memorypool snapshotPool;
+	px_byte *block=PX_NULL;
 	px_memory snapshot;
 	px_char tempFolder[MAX_PATH],snapshotPath[MAX_PATH],modulePath[MAX_PATH],commandLine[MAX_PATH*3];
 	STARTUPINFOA startupInfo;
 	PROCESS_INFORMATION processInfo;
 	px_bool result=PX_FALSE;
-	cacheBuffer=(px_byte *)malloc(64*1024*1024);
-	if (!cacheBuffer) return PX_FALSE;
-	snapshotPool=MP_Create(cacheBuffer,64*1024*1024);
-	PX_MemoryInitialize(&snapshotPool,&snapshot);
-	if (!PX_LiveFrameworkExport(&pApp->liveFramework,&snapshot)) goto cleanup;
+	PX_memset(&snapshot,0,sizeof(snapshot));
+	if (!PX_LiveEditorModule_ExportLiveCapture(&pApp->liveFramework,&block,&snapshot)) return PX_FALSE;
 	if (!GetTempPathA(MAX_PATH,tempFolder)) goto cleanup;
 	if (!GetTempFileNameA(tempFolder,"PLE",0,snapshotPath)) goto cleanup;
 	if (!PX_SaveDataToFile(snapshot.buffer,snapshot.usedsize,snapshotPath))
@@ -237,7 +233,7 @@ static px_bool PX_Object_LiveEditorLaunchRealtimePreview(PX_Object_LiveEditor *p
 	CloseHandle(processInfo.hProcess);
 	result=PX_TRUE;
 cleanup:
-	free(cacheBuffer);
+	free(block);
 	return result;
 #else
 	return PX_FALSE;
@@ -1001,6 +997,7 @@ static PX_Object *PX_Object_RealtimePreviewWindowCreate(PX_Runtime *pruntime,PX_
 	window->uiMemory=(px_byte *)malloc(PX_REALTIME_PREVIEW_UI_POOL_SIZE);
 	if (!window->uiMemory) goto error;
 	window->uiPool=MP_Create(window->uiMemory,PX_REALTIME_PREVIEW_UI_POOL_SIZE);
+	MP_NoCatchError(&window->uiPool);
 	stage=PX_REALTIME_PREVIEW_INIT_UI_ROOT;
 	window->preview=PX_LiveEditorModule_RealtimeBlendPreviewInstall(object,pruntime,&window->uiPool,&window->fontmodule,&window->accessor,&window->languageJson,PX_TRUE,&installError);
 	if (!window->preview)

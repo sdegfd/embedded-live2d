@@ -12,7 +12,6 @@ px_void PX_Runtime_MP_ErrorCall(px_void *ptr,PX_MEMORYPOOL_ERROR err)
 		PX_ERROR("Memory address error");
 		break;
 	case PX_MEMORYPOOL_ERROR_OUTOFMEMORY:
-		PX_ERROR("Out of memory");
 		break;
 	}
 }
@@ -28,6 +27,7 @@ px_bool PX_RuntimeInitialize(PX_Runtime *pe,px_int surface_width,px_int surface_
 	pe->window_height=window_height;
 
 	pe->mp=MP_Create(runtime_memoryPtr,size);
+	MP_ErrorCatch(&pe->mp,PX_Runtime_MP_ErrorCall,pe);
 
 	pe->mp_static=MP_Create(MP_Malloc(&pe->mp, static_size), static_size);
 	pe->mp_dynamic=MP_Create(MP_Malloc(&pe->mp, dynamic_size), dynamic_size);

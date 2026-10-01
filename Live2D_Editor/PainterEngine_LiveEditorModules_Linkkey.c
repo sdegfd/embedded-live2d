@@ -119,7 +119,7 @@ PX_Object * PX_LiveEditorModule_LinkkeyInstall(PX_Object *pparent,PX_Runtime *pr
 	plinkkey->pLanguageJson=pLanguageJson;
 	plinkkey->pLiveFramework=pLiveFramework;
 	plinkkey->messagebox= PX_Object_MessageBoxCreate(&pruntime->mp_dynamic,pObject,fm);
-	plinkkey->root=PX_Object_WidgetCreate(&pruntime->mp_dynamic,pObject,pruntime->surface_width-280,64,176,62,"",fm);
+	plinkkey->root=PX_Object_WidgetCreate(&pruntime->mp_dynamic,pObject,pruntime->surface_width-280,64,176,62,PX_JsonGetString(pLanguageJson,"linkkey.title"),fm);
 	PX_Object_WidgetShowHideCloseButton(plinkkey->root,PX_FALSE);
 	plinkkey->button_reset=PX_Object_PushButtonCreate(&pruntime->mp_dynamic,plinkkey->root,3+85*0,3,84,32,PX_JsonGetString(pLanguageJson,"linkkey.reset"),fm);
 	plinkkey->button_finish=PX_Object_PushButtonCreate(&pruntime->mp_dynamic,plinkkey->root,3+85*1,3,84,32,PX_JsonGetString(pLanguageJson,"linkkey.finish"),fm);
