@@ -10,6 +10,8 @@ A C runtime for resource constrained devices. It loads PainterEngine `.live` mod
 | `examples/esp32s3/` | ESP-IDF headless build and API smoke example |
 | `examples/host_headless/` | Host usage notes |
 | `models/esp.live` | Only formal test model, five axes, SHA256 `1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100` |
+| `models/light.live` | Authoring model used for axis examples. Not a formal test model |
+| `tools/live-inspect/` | Standalone `live-inspect.exe`. Writes layer, skeleton and RT30 curves to JSON |
 | `PainterEngine/` | Original PC engine retained for reference and editor builds |
 | `docs/` | Current architecture, format, porting and benchmark documentation plus historical work logs |
 

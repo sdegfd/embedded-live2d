@@ -2,6 +2,7 @@
 *.obj
 *.exe
 !/Live2D_Editor/PainterEngine.exe
+!/tools/live-inspect/live-inspect.exe
 *.ilk
 *.pdb
 *.lib
