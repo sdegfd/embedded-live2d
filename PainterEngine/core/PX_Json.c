@@ -187,7 +187,7 @@ static px_bool PX_JsonInterpret_Value_Array(PX_Json *pjson,px_lexer *lexer,PX_Js
 				return PX_TRUE;
 			}
 
-			if(lexer->Symbol!='{')
+			if(lexer->Symbol!='{' && lexer->Symbol!='[')
 			{
 				goto _ERROR;
 			}	

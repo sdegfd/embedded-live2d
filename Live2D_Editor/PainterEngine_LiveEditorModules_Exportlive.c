@@ -330,12 +330,18 @@ px_void PX_Application_OnExportLive_OnConfirm(PX_Object *pObject,PX_Object_Event
 		return;
 	}
 	PX_memset(&data,0,sizeof(data));
-	if (!PX_ExportLive_WriteFramework(pExportLive->pLiveFramework,&block,&data) ||
-		!PX_ExportLive_ReloadOk(data.buffer,data.usedsize))
 	{
-		free(block);
-		PX_ExportLive_Report(pExportLiveObject,pExportLive->pLanguageJson,"exportlive.out of memory",finalPath);
-		return;
+		PX_LiveEditorEvaluationGuard guard;
+		PX_LiveEditorEvaluationGuardSuspend(pExportLive->pLiveFramework,pExportLive->poseAccessor,&guard);
+		if (!PX_ExportLive_WriteFramework(pExportLive->pLiveFramework,&block,&data) ||
+			!PX_ExportLive_ReloadOk(data.buffer,data.usedsize))
+		{
+			free(block);
+			PX_LiveEditorEvaluationGuardResume(pExportLive->pLiveFramework,pExportLive->poseAccessor,&guard);
+			PX_ExportLive_Report(pExportLiveObject,pExportLive->pLanguageJson,"exportlive.out of memory",finalPath);
+			return;
+		}
+		PX_LiveEditorEvaluationGuardResume(pExportLive->pLiveFramework,pExportLive->poseAccessor,&guard);
 	}
 	if (!PX_SaveDataToFile(data.buffer,data.usedsize,tmpPath))
 	{

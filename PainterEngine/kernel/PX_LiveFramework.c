@@ -1975,7 +1975,7 @@ PX_LiveLayer * PX_LiveFrameworkGetLayerById(PX_LiveFramework *plive,const px_cha
 	for (i=0;i<plive->layers.size;i++)
 	{
 		PX_LiveLayer *pLayer=PX_LiveFrameworkGetLayer(plive,i);
-		if (pLayer&&PX_memequ(pLayer->id,id,PX_LIVE_ID_MAX_LEN))
+		if (pLayer&&PX_strequ(pLayer->id,id))
 		{
 			return pLayer;
 		}

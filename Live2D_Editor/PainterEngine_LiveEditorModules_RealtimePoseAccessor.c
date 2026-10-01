@@ -1210,6 +1210,43 @@ px_void PX_LiveEditorRealtimePoseAccessorLeave(PX_LiveEditorRealtimePoseAccessor
 	}
 }
 
+px_void PX_LiveEditorEvaluationGuardSuspend(PX_LiveFramework *plive,PX_LiveEditorRealtimePoseAccessor *accessor,PX_LiveEditorEvaluationGuard *guard)
+{
+	if (!guard) return;
+	PX_memset(guard,0,sizeof(*guard));
+	if (!plive) return;
+	guard->animationIndex=plive->currentEditAnimationIndex;
+	guard->frameIndex=plive->currentEditFrameIndex;
+	if (accessor && (accessor->entered || accessor->authoringPoseActive || accessor->blendPreviewActive))
+	{
+		guard->suspended=PX_TRUE;
+		guard->resumeAuthoring=accessor->authoringPoseActive && accessor->selectedAxis>=0;
+		PX_LiveEditorRealtimePoseAccessorLeave(accessor);
+		return;
+	}
+	if (plive->animationMode!=PX_LIVE_MODE_NEUTRAL || plive->status==PX_LIVEFRAMEWORK_STATUS_PLAYING)
+	{
+		guard->suspended=PX_TRUE;
+		guard->resumeFrame=plive->animationMode==PX_LIVE_MODE_TIMELINE && guard->frameIndex>=0;
+		PX_LiveFrameworkStop(plive);
+	}
+}
+
+px_void PX_LiveEditorEvaluationGuardResume(PX_LiveFramework *plive,PX_LiveEditorRealtimePoseAccessor *accessor,const PX_LiveEditorEvaluationGuard *guard)
+{
+	if (!plive || !guard || !guard->suspended) return;
+	if (guard->resumeAuthoring && accessor)
+	{
+		PX_LiveEditorRealtimePoseAccessorApplySelectedKey(accessor);
+	}
+	else if (guard->resumeFrame)
+	{
+		plive->currentEditAnimationIndex=guard->animationIndex;
+		plive->currentEditFrameIndex=guard->frameIndex;
+		PX_LiveFrameworkRunCurrentEditFrame(plive);
+	}
+}
+
 px_bool PX_LiveEditorRealtimePoseAccessorSetPreview(PX_LiveEditorRealtimePoseAccessor *accessor,px_int sampleIndex,px_uint16 weightQ15)
 {
 	PX_LiveEditorRealtimeAxisAuthoring *axis=PX_LiveEditorRealtimePoseAccessorGetAxis(accessor,accessor?accessor->selectedAxis:-1);

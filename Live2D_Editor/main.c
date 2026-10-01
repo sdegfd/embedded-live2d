@@ -207,7 +207,17 @@ static px_bool PX_Object_LiveEditorLaunchRealtimePreview(PX_Object_LiveEditor *p
 	PROCESS_INFORMATION processInfo;
 	px_bool result=PX_FALSE;
 	PX_memset(&snapshot,0,sizeof(snapshot));
-	if (!PX_LiveEditorModule_ExportLiveCapture(&pApp->liveFramework,&block,&snapshot)) return PX_FALSE;
+	{
+		PX_LiveEditorEvaluationGuard guard;
+		PX_LiveEditorRealtimePoseAccessor *accessor=PX_LiveEditorModule_RealtimeControllerGetPoseAccessor(pApp->module_realtimecontroller);
+		PX_LiveEditorEvaluationGuardSuspend(&pApp->liveFramework,accessor,&guard);
+		if (!PX_LiveEditorModule_ExportLiveCapture(&pApp->liveFramework,&block,&snapshot))
+		{
+			PX_LiveEditorEvaluationGuardResume(&pApp->liveFramework,accessor,&guard);
+			return PX_FALSE;
+		}
+		PX_LiveEditorEvaluationGuardResume(&pApp->liveFramework,accessor,&guard);
+	}
 	if (!GetTempPathA(MAX_PATH,tempFolder)) goto cleanup;
 	if (!GetTempFileNameA(tempFolder,"PLE",0,snapshotPath)) goto cleanup;
 	if (!PX_SaveDataToFile(snapshot.buffer,snapshot.usedsize,snapshotPath))

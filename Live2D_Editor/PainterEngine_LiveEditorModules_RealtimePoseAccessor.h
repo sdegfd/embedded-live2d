@@ -84,6 +84,20 @@ px_bool PX_LiveEditorRealtimePoseAccessorHasUnbakedEdits(const PX_LiveEditorReal
 
 px_bool PX_LiveEditorRealtimePoseAccessorEnter(PX_LiveEditorRealtimePoseAccessor *accessor);
 px_void PX_LiveEditorRealtimePoseAccessorLeave(PX_LiveEditorRealtimePoseAccessor *accessor);
+
+/* Clears a realtime or timeline evaluation so export sees the rest mesh.
+   Authoring keys and baked samples stay. Resume puts the editor view back. */
+typedef struct
+{
+	px_bool suspended;
+	px_bool resumeAuthoring;
+	px_bool resumeFrame;
+	px_int animationIndex;
+	px_int frameIndex;
+}PX_LiveEditorEvaluationGuard;
+
+px_void PX_LiveEditorEvaluationGuardSuspend(PX_LiveFramework *plive,PX_LiveEditorRealtimePoseAccessor *accessor,PX_LiveEditorEvaluationGuard *guard);
+px_void PX_LiveEditorEvaluationGuardResume(PX_LiveFramework *plive,PX_LiveEditorRealtimePoseAccessor *accessor,const PX_LiveEditorEvaluationGuard *guard);
 px_bool PX_LiveEditorRealtimePoseAccessorSetPreview(PX_LiveEditorRealtimePoseAccessor *accessor,px_int sampleIndex,px_uint16 weightQ15);
 px_bool PX_LiveEditorRealtimePoseAccessorResetPreview(PX_LiveEditorRealtimePoseAccessor *accessor);
 px_bool PX_LiveEditorRealtimePoseAccessorApplyBlendPreview(PX_LiveEditorRealtimePoseAccessor *accessor,const px_uchar sampleIndices[],const px_uint16 weightsQ15[],px_int axisCount);

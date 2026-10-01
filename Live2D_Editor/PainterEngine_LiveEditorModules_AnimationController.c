@@ -384,5 +384,12 @@ px_void PX_LiveEditorModule_AnimationControllerEnable(PX_Object *pObject)
 
 px_void PX_LiveEditorModule_AnimationControllerDisable(PX_Object *pObject)
 {
+	PX_LiveEditorModule_AnimationController *pDesc=(PX_LiveEditorModule_AnimationController *)pObject->pObjectDesc[0];
 	pObject->Enabled=PX_FALSE;
+	/* Stop a running playback. A stopped frame stays until the tab button resets it,
+	   so this does not wipe the pose before realtime mode is entered. */
+	if (pDesc->pLiveFramework && pDesc->pLiveFramework->status==PX_LIVEFRAMEWORK_STATUS_PLAYING)
+	{
+		PX_LiveFrameworkStop(pDesc->pLiveFramework);
+	}
 }
