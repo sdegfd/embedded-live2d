@@ -1,5 +1,6 @@
 # 模型部署
 
-将当前待测模型拷到设备 SD 卡根目录，文件名为 `esp.live`，运行路径是 `/sdcard/esp.live`。固件会打印文件大小、SHA256、轴数与轴名；基线只测试板上的实际文件，不在固件中打包或导出模型。
+esp 例程将原始 `models/esp.live` 复制到 SD 卡根目录，设备路径 `/sdcard/esp.live`。
+light 例程默认内嵌原始 `models/light.live` 到 Flash；启用 `CONFIG_L2D_LIGHT_FROM_SD` 时，将它复制到 SD 卡根目录，路径 `/sdcard/light.live`。
 
-PC 仓库中另有 `models/esp.live` 作为编辑器示例。若需要重现报告，请先核对板端启动日志中的 SHA256。
+固件会核对模型大小、SHA256 和轴数。模型清单见根目录 `models/manifest.json`；不一致时停止测试，不自动选择其他文件。两个例程各只加载一个模型。

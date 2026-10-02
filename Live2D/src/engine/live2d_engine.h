@@ -123,6 +123,9 @@ void live2d_engine_set_render_scale(live2d_engine_t *engine, float render_scale)
 void live2d_engine_render(live2d_engine_t *engine, void *pixels, int width, int height,
                           int x, int y, uint32_t elapsed_ms);
 void live2d_engine_update(live2d_engine_t *engine, uint32_t elapsed_ms);
+bool live2d_engine_can_rgb565(const live2d_engine_t *engine);
+void live2d_engine_render_rgb565(live2d_engine_t *engine, void *rgb, void *capture,
+                                 int width,int height,int x,int y);
 void live2d_engine_render_current(live2d_engine_t *engine, void *pixels, int width,
                                   int height, int x, int y);
 

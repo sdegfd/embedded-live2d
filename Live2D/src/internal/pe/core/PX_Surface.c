@@ -19,6 +19,10 @@ px_bool PX_SurfaceCreate(px_memorypool *mp,px_int width,px_int height,px_surface
 		px_void* p = MP_Malloc(mp, height * width * sizeof(px_color));
 		if (p != PX_NULL)
 		{
+			surface->rgb565_sink = PX_NULL;
+			surface->bgra_capture = PX_NULL;
+			surface->buffer_y0 = 0;
+			surface->row_step = surface->row_phase = 0;
 			surface->height = height;
 			surface->width = width;
 			surface->surfaceBuffer = (px_color*)p;
@@ -31,7 +35,7 @@ px_bool PX_SurfaceCreate(px_memorypool *mp,px_int width,px_int height,px_surface
 			return PX_TRUE;
 		}
 	}
-	
+
 	return PX_FALSE;
 }
 
@@ -229,7 +233,7 @@ px_void PX_SurfaceClear(px_surface *psurface, px_int left, px_int top, px_int ri
 	{
 		PX_memdwordset(psurface->surfaceBuffer+i*psurface->width+left,color._argb.ucolor,right-left+1);
 	}
-	
+
 }
 
 /* ── 区域清除 ────────────────────────────────── */

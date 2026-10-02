@@ -40,7 +40,7 @@ def iter_sources(root: Path):
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
-        if any(part in SKIP_DIRS for part in path.parts):
+        if any(part in SKIP_DIRS or part.startswith("build_") for part in path.parts):
             continue
         yield path
 

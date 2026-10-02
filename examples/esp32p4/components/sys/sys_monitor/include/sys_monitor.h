@@ -15,6 +15,17 @@ extern "C" {
 /** 启动系统监控。每秒读取 FreeRTOS 每核 Idle 任务运行时间，无需校准。 */
 esp_err_t sys_monitor_start(void);
 
+/**
+ * @brief 启动每秒 CPU 采样，不执行周期日志、堆遍历或任务栈扫描。
+ *
+ * Returns:
+ * - ESP_OK：启动成功。
+ * - ESP_ERR_NO_MEM：采样任务创建失败。
+ *
+ * 备注：与 sys_monitor_start 二选一调用一次，适用于持续性能测试。
+ */
+esp_err_t sys_monitor_start_cpu_only(void);
+
 /** 关联 LVGL 显示设备用于 FPS 追踪。注册 LV_EVENT_RENDER_READY 回调以统计实际显示刷新次数。 */
 void sys_monitor_attach_display(lv_display_t *disp);
 

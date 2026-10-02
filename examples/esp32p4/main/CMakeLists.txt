@@ -27,6 +27,12 @@ if(NOT L2D_ESP_COMMIT)
     set(L2D_ESP_COMMIT "uncommitted-worktree")
 endif()
 get_filename_component(L2D_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+if(CONFIG_L2D_EXAMPLE_LIGHT)
+    target_sources(${COMPONENT_LIB} PRIVATE "light_model_example.cpp")
+    if(NOT CONFIG_L2D_LIGHT_FROM_SD)
+        target_add_binary_data(${COMPONENT_LIB} "${L2D_ROOT}/models/light.live" BINARY)
+    endif()
+endif()
 target_include_directories(${COMPONENT_LIB} PRIVATE
     "${L2D_ROOT}/Live2D/bench/scenarios")
 # The private diagnostic adapter is the only application file that may see

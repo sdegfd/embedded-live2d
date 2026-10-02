@@ -95,6 +95,7 @@ static void on_lvgl_render_ready(lv_event_t *e)
 #define MONITOR_LOG_STACK        4096  /**< 打印任务栈大小（ESP_LOGI→uart_write→递归互斥锁链路约 3KB，2048 不足会触发栈尾 watchpoint） */
 
 static TaskHandle_t s_log_task = NULL;  /**< 打印任务句柄 */
+static bool s_cpu_only;
 
 /** 周期性打印 CPU 使用率与 FPS，便于排查负载与卡顿（每 5 秒一次）。
  *  单核模式只打印 core0，双核打印 core0/core1。 */
@@ -105,6 +106,7 @@ static void monitor_log_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(MONITOR_UPDATE_INTERVAL_US / 1000));
         sample_cpu_usage();
+        if (s_cpu_only) continue;
         int64_t now = esp_timer_get_time();
         if (now - last_log_us < MONITOR_LOG_INTERVAL_MS * 1000LL) continue;
         last_log_us = now;
@@ -149,6 +151,12 @@ esp_err_t sys_monitor_start(void)
 
     ESP_LOGI(TAG, "CPU monitor started (FreeRTOS idle run time, 1 s windows)");
     return ESP_OK;
+}
+
+esp_err_t sys_monitor_start_cpu_only(void)
+{
+    s_cpu_only = true;
+    return sys_monitor_start();
 }
 
 /** 将FPS跟踪绑定到指定LVGL显示设备上。 */

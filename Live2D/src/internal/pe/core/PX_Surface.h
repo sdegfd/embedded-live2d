@@ -8,6 +8,10 @@ typedef struct _PX_Surface
 {
 	px_memorypool *MP;			/**< 所属内存池 */
 	px_color *surfaceBuffer;	/**< 像素缓冲区（ARGB格式） */
+	px_ushort *rgb565_sink; /* Optional terminal output; blends remain BGRA in scratch. */
+	px_color *bgra_capture; /* Optional correctness copy, never used as a blend target. */
+	px_int buffer_y0; /* Raster scratch buffer origin; logical y stays unchanged. */
+	px_uint row_step, row_phase; /* 0: all rows; otherwise disjoint worker rows. */
 	px_int height;				/**< 表面高度 */
 	px_int width;				/**< 表面宽度 */
 	px_int limit_left;			/**< 绘制区域左边界限制 */
@@ -15,7 +19,11 @@ typedef struct _PX_Surface
 	px_int limit_right;		/**< 绘制区域右边界限制 */
 	px_int limit_bottom;		/**< 绘制区域下边界限制 */
 }px_surface;
-#define PX_SURFACECOLOR(main_pSurface,X,Y) ((main_pSurface)->surfaceBuffer[(X)+(main_pSurface)->width*(Y)]) /**< 获取表面指定坐标的像素颜色 */
+static inline px_uint PX_SurfacePixelIndex(const px_surface *s, px_uint x, px_uint y)
+{
+    return y * (px_uint)s->width + x;
+}
+#define PX_SURFACECOLOR(main_pSurface,X,Y) ((main_pSurface)->surfaceBuffer[PX_SurfacePixelIndex(main_pSurface,(X),(Y))]) /**< 获取表面指定坐标的像素颜色 */
 #define PX_SurfaceGetPixel(main_pSurface,X,Y)  PX_SURFACECOLOR(main_pSurface,X,Y) /**< 获取像素的便捷宏 */
 
 /** 绘制区域限制信息结构 */

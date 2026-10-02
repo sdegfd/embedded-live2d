@@ -9,6 +9,7 @@ This script does not select another file.
 """
 import argparse
 import hashlib
+import json
 import pathlib
 import sys
 
@@ -37,25 +38,33 @@ def sha256_file(path: pathlib.Path) -> tuple[str, int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=("esp", "light"), default="esp")
     parser.add_argument("--device-sha", help="SHA256 printed from /sdcard/esp.live")
     parser.add_argument("--metadata", type=pathlib.Path, help="Captured metadata.txt")
     args = parser.parse_args()
-    if not HOST_PATH.is_file():
-        print(f"STOP formal test: missing {HOST_PATH}. Not switching models.", file=sys.stderr)
+    manifest = json.loads((ROOT / "models" / "manifest.json").read_text())
+    expected = manifest["formal_model"] if args.model == "esp" else manifest["test_models"][args.model]
+    host_path = ROOT / expected["path"]
+    baseline_sha, baseline_size = expected["sha256"], expected["size_bytes"]
+    # The historical esp baseline is pinned independently of the manifest.
+    if args.model == "esp" and (baseline_sha != BASELINE_SHA or baseline_size != BASELINE_SIZE):
+        print("STOP: esp formal baseline identity changed", file=sys.stderr)
         return 2
-    sha, size = sha256_file(HOST_PATH)
-    print(f"model_path=models/esp.live")
-    print(f"device_path=/sdcard/esp.live")
+    if not host_path.is_file():
+        print(f"STOP model test: missing {host_path}.", file=sys.stderr)
+        return 2
+    sha, size = sha256_file(host_path)
+    print(f"model_path={expected['path']}")
+    print(f"device_path={expected['device_path']}")
     print(f"model_sha256={sha}")
     print(f"model_size={size}")
-    print("axis_count=5")
+    print(f"axis_count={len(expected['axes'])}")
     if sha in FORBIDDEN:
         print(f"STOP formal test: models/esp.live is {FORBIDDEN[sha]}. Not switching models.",
               file=sys.stderr)
         return 2
-    if sha != BASELINE_SHA or size != BASELINE_SIZE:
-        print("STOP formal test: models/esp.live does not match the five-axis baseline. "
-              "Not switching models.", file=sys.stderr)
+    if sha != baseline_sha or size != baseline_size:
+        print(f"STOP model test: {expected['path']} identity mismatch.", file=sys.stderr)
         return 2
     device_sha = args.device_sha
     if args.metadata:
@@ -63,11 +72,16 @@ def main() -> int:
         for line in text.splitlines():
             if line.startswith("model_sha256="):
                 device_sha = line.split("=", 1)[1].strip()
-            if line.startswith("axis_count=") and line.split("=", 1)[1].strip() not in ("5", ""):
-                print(f"STOP formal test: device axis_count is not 5 ({line}).", file=sys.stderr)
-                return 2
+            fields = {"axis_count": len(expected["axes"]), "model_size": size}
+            for field, value in fields.items():
+                if line.startswith(field + "=") and line.split("=", 1)[1].strip() != str(value):
+                    print(f"STOP model test: unexpected {line}", file=sys.stderr)
+                    return 2
+        if device_sha is None:
+            print("STOP model test: metadata lacks model_sha256", file=sys.stderr)
+            return 2
     if device_sha is not None and device_sha.lower() != sha:
-        print("STOP formal test: models/esp.live and /sdcard/esp.live SHA256 differ.",
+        print(f"STOP model test: workspace {expected['path']} and device SHA256 differ.",
               file=sys.stderr)
         print(f"workspace={sha}", file=sys.stderr)
         print(f"device={device_sha.lower()}", file=sys.stderr)

@@ -1,8 +1,16 @@
-# 编译产物。源码用 build_msvc.bat 可以重新生成。
+# Build products and generated ESP-IDF dependencies/configuration.
+**/build*/
+**/managed_components/
+**/dependencies.lock
+**/sdkconfig
+**/sdkconfig.light
+**/sdkconfig.release.*
+**/sdkconfig.*.old
+**/sdkconfig.old
+**/__pycache__/
+*.pyc
 *.obj
 *.exe
-!/Live2D_Editor/PainterEngine.exe
-!/tools/live-inspect/live-inspect.exe
 *.ilk
 *.pdb
 *.lib
@@ -13,14 +21,6 @@
 *.tlog
 *.lastbuildstate
 *.recipe
-
-# 构建目录和本机归档的旧程序
-**/build/
-**/build_idf*/
-**/build_detail/
-**/managed_components/
-**/sdkconfig.old
-/firmware/**/sdcard/*.live
 **/bench_build/
 **/rt30_obj/
 **/CMakeFiles/
@@ -35,17 +35,14 @@ CTestTestfile.cmake
 *.sln
 *.slnx
 
-# 压缩包和系统标记
+# Machine settings, internal notes and local measurement captures.
+**/.vscode/
+/.grok/
+/docs/
+/审查工作日志*.md
+/captures/
+/PainterEngine_make/
 *.zip
 *Zone.Identifier
 Thumbs.db
 Desktop.ini
-
-# 本机编辑器设置里有个人工具链路径
-.vscode/settings.json
-
-# ESP32-S3 例程由 idf.py set-target 生成。跟踪的是 sdkconfig.defaults。
-/examples/esp32s3/sdkconfig
-
-# 旧的 PainterEngine_make 整包，约 450MB，不是当前工程
-/PainterEngine_make/

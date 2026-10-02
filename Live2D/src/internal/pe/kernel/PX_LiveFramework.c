@@ -568,7 +568,7 @@ static px_void PX_LiveFramework_RenderAffinePixelShaderSpan(px_surface *psurface
 				}
 				DETAIL_SAMPLE_IN();
 				{
-					px_dword src = ptexture->surfaceBuffer[(px_uint)ty * (px_uint)texture_width + (px_uint)tx]._argb.ucolor;
+					px_dword src = PX_SURFACECOLOR(ptexture,tx,ty)._argb.ucolor;
 					px_dword a = src >> 24;
 					DETAIL_FRAGMENT(ix, iy, (px_int)a, PX_FALSE);
 					if (a == 255u)
@@ -661,6 +661,11 @@ static px_void PX_LiveFramework_RenderListRasterization(px_surface *psurface,PX_
 	if (pLiveFramework->fastNearestSampling && pLiveFramework->pixelShader &&
 		!blend && ptexture && ptexture->surfaceBuffer)
 	{
+        if (pLiveFramework->rasterCollect) {
+            l2d_raster_job *job=&pLiveFramework->rasterJobs[pLiveFramework->rasterJobCount++];
+            l2d_raster_prepare(job,p0,p1,p2,ptexture);
+            return;
+        }
 		l2d_raster_fast_nearest(psurface, p0, p1, p2, ptexture);
 		return;
 	}
@@ -2278,6 +2283,23 @@ px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed)
 
 /* ── 当前帧渲染函数 ──────────────────────────────── */
 
+px_bool PX_LiveFrameworkCanBatch(const PX_LiveFramework *plive)
+{
+#if L2D_CFG_RASTER_BATCH && !L2D_CFG_PROFILE_DETAIL
+    if (!plive->rasterJobs || !plive->fastNearestSampling || !plive->pixelShader) return PX_FALSE;
+    int count=0;
+    for (int i=0;i<plive->layers.size;++i) {
+        const PX_LiveLayer *layer=PX_VECTORAT(PX_LiveLayer,&plive->layers,i);
+        if (layer->visible && (!layer->triangles.size || !layer->vertices.size)) return PX_FALSE;
+        count+=layer->triangles.size;
+    }
+    return count<=plive->rasterJobCapacity;
+#else
+    (void)plive;
+    return PX_FALSE;
+#endif
+}
+
 /** 渲染当前状态：对齐、排序、绘制所有图层，并输出调试信息 */
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_int x,px_int y,PX_ALIGN refPoint)
 {
@@ -2324,6 +2346,8 @@ px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *pli
 
 	if (plive->layers.size)
 	{
+        plive->rasterJobCount=0;
+        plive->rasterCollect=PX_LiveFrameworkCanBatch(plive);
 		layer_begin_us=l2d_pe_time_us();
 		for (i=0;i<plive->layers.size;i++)
 		{
@@ -2357,6 +2381,10 @@ px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *pli
 				PX_LiveFrameworkProfileLayerDetailUs[layerIndex]+=(unsigned long long)(l2d_pe_time_us()-single_begin_us);
 			}
 		}
+        if (plive->rasterCollect) {
+            l2d_port_raster_dispatch(plive->rasterJobs,plive->rasterJobCount,psurface);
+            plive->rasterCollect=PX_FALSE;
+        }
 		draw_end_us=l2d_pe_time_us();
 		sort_elapsed_us=sort_end_us-layer_begin_us;
 		draw_elapsed_us=draw_end_us-sort_end_us;
@@ -2728,6 +2756,8 @@ px_void PX_LiveFrameworkDeleteLiveAnimation(PX_LiveFramework *plive,px_int index
 /** 释放框架所有资源（图层、纹理、动画及其帧数据） */
 px_void PX_LiveFrameworkFree(PX_LiveFramework *plive)
 {
+	if (plive->rasterJobs) MP_Free(plive->mp,plive->rasterJobs);
+	plive->rasterJobs=PX_NULL;
 	PX_LiveRealtimeFree(&plive->realtime);
 	while (plive->liveAnimations.size)
 	{
@@ -3161,6 +3191,7 @@ l2d_status_t l2d_format_import(px_memorypool *mp, PX_LiveFramework *plive, const
 		const px_byte *pixels;
 		px_color *dest;
 		px_uint32 pixel_count;
+		px_uint32 storage_width, storage_height;
 		px_uint32 k;
 		if (l2d_wire_bytes(&wire, texture_id, sizeof(texture_id)) != 0 ||
 		    l2d_wire_i32le(&wire, &texture_width) != 0 ||
@@ -3173,9 +3204,11 @@ l2d_status_t l2d_format_import(px_memorypool *mp, PX_LiveFramework *plive, const
 			status = L2D_ERR_FORMAT;
 			goto fail;
 		}
-		if (l2d_format_mul_u32((px_uint32)texture_width, (px_uint32)texture_height, &pixel_count) != 0 ||
-		    l2d_format_mul_u32((px_uint32)texture_width, 4u, &row_bytes) != 0 ||
-		    l2d_format_mul_u32((px_uint32)texture_height, row_bytes, &pixel_bytes) != 0) {
+		storage_width = (px_uint32)texture_width;
+		storage_height = (px_uint32)texture_height;
+		if (l2d_format_mul_u32(storage_width, storage_height, &pixel_count) != 0 ||
+		    l2d_format_mul_u32(storage_width, 4u, &row_bytes) != 0 ||
+		    l2d_format_mul_u32(storage_height, row_bytes, &pixel_bytes) != 0) {
 			status = L2D_ERR_OVERFLOW;
 			goto fail;
 		}
@@ -3184,10 +3217,14 @@ l2d_status_t l2d_format_import(px_memorypool *mp, PX_LiveFramework *plive, const
 			goto fail;
 		}
 		PX_memset(texture, 0, sizeof(*texture));
-		if (!PX_TextureCreate(mp, &texture->Texture, texture_width, texture_height)) {
+		if (!PX_TextureCreate(mp, &texture->Texture, (px_int)storage_width, (px_int)storage_height)) {
 			status = L2D_ERR_NO_MEM;
 			goto fail;
 		}
+		texture->Texture.width = texture_width;
+		texture->Texture.height = texture_height;
+		texture->Texture.limit_right = texture_width - 1;
+		texture->Texture.limit_bottom = texture_height - 1;
 		plive->livetextures.size = i + 1;
 		PX_memcpy(texture->id, texture_id, sizeof(texture->id));
 		texture->textureOffsetX = offset_x;

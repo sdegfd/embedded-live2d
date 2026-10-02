@@ -139,7 +139,7 @@ px_void PX_TextureRender(px_surface *psurface, px_texture *tex, px_int x, px_int
         px_int sy = py - y;      /* 纹理中的Y偏移 */
         for (px_int px = left; px <= right; ++px) {
             px_int sx = px - x;  /* 纹理中的X偏移 */
-            px_color color = tex->surfaceBuffer[sy * tex->width + sx];
+            px_color color = PX_SURFACECOLOR(tex,sx,sy);
             color = PX_TextureApplyBlend(color, blend);
             PX_SurfaceDrawPixel(psurface, px, py, color);
         }

@@ -1,0 +1,12 @@
+# Exact little-endian BGRA8888 -> RGB565, no arithmetic or rounding change.
+# The newly read 32-bit pixel occupies input bits 32..63.
+cfg prefetch false
+cfg eof_on downstream
+cfg trailing_bytes 2
+loop:
+    read 32
+    set 0..4 35..39,
+    set 5..10 42..47,
+    set 11..15 51..55,
+    write 16,
+    jmp loop

@@ -11,8 +11,9 @@
  * Before an instance exists, per-instance minimum is 0 and upper_bound is
  * the arena that create will request. After create, minimum is the used size.
  * Loader temporary and renderer scratch are 0 after a successful load:
- * import space is returned to the model arena, and embedded-nearest does not
- * keep a second scratch buffer.
+ * import space is returned to the model arena. Platform worker scratch and
+ * application framebuffers are allocated outside these arenas and must be
+ * accounted for separately (the P4 band path reserves SRAM per worker).
  */
 #ifndef L2D_MEMORY_H
 #define L2D_MEMORY_H

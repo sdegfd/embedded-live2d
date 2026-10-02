@@ -20,6 +20,12 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "sdkconfig.h"
+#include "l2d_p4_pie.h"
+#include "l2d_p4_bitscrambler.h"
+#include "l2d_raster_workers.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "esp_attr.h"
 
 static const char *TAG = "live2d_renderer";
 
@@ -56,18 +62,39 @@ static void live2d_renderer_clear_dirty_rect_cpu(live2d_renderer_t *renderer)
     const int y_end = renderer->dirty_y + renderer->dirty_h;
 
     if (renderer->dirty_x == 0 && renderer->dirty_w == renderer->buffer->width) {
+#if CONFIG_L2D_CLEAR_PIE
+        l2d_p4_pie_zero(base + (size_t)renderer->dirty_y * stride,
+                         (size_t)renderer->dirty_h * stride);
+#else
         memset(base + (size_t)renderer->dirty_y * stride, 0,
                (size_t)renderer->dirty_h * stride);
+#endif
         return;
     }
 
     for (int y = renderer->dirty_y; y < y_end; ++y) {
+#if CONFIG_L2D_CLEAR_PIE
+        l2d_p4_pie_zero(base + (size_t)y * stride + (size_t)renderer->dirty_x * LIVE2D_RENDERER_BGRA_BYTES,
+                         row_bytes);
+#else
         memset(base + (size_t)y * stride + (size_t)renderer->dirty_x * LIVE2D_RENDERER_BGRA_BYTES,
                0, row_bytes);
+#endif
     }
 }
 
-static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer)
+#if CONFIG_L2D_CLEAR_OVERLAP
+static bool IRAM_ATTR clear_completed(ppa_client_handle_t client, ppa_event_data_t *event, void *user)
+{
+    (void)client; (void)event;
+    BaseType_t woke=pdFALSE;
+    xSemaphoreGiveFromISR((SemaphoreHandle_t)user,&woke);
+    return woke==pdTRUE;
+}
+#endif
+
+static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer,
+                                                l2d_instance_t *instance, uint32_t elapsed_ms)
 {
     ppa_fill_oper_config_t fill_config = {
         .out.buffer = renderer->buffer->render_argb8888,
@@ -83,6 +110,12 @@ static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer)
         .mode = PPA_TRANS_MODE_BLOCKING,
     };
 
+#if CONFIG_L2D_CLEAR_OVERLAP
+    fill_config.mode=PPA_TRANS_MODE_NON_BLOCKING;
+    fill_config.user_data=renderer->clear_done;
+#else
+    (void)instance; (void)elapsed_ms;
+#endif
     int64_t fill_begin_us = esp_timer_get_time();
     esp_err_t ret = ppa_do_fill(renderer->ppa_fill_handle, &fill_config);
     int64_t sync_begin_us = esp_timer_get_time();
@@ -95,6 +128,14 @@ static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer)
         return false;
     }
 
+#if CONFIG_L2D_CLEAR_OVERLAP
+    /* Pose never touches destination pixels. The draw starts only after join. */
+    l2d_instance_update(instance,elapsed_ms);
+    renderer->pose_updated=true;
+    xSemaphoreTake((SemaphoreHandle_t)renderer->clear_done,portMAX_DELAY);
+    sync_begin_us=esp_timer_get_time();
+    renderer->last_clear_fill_us=(uint32_t)(sync_begin_us-fill_begin_us);
+#endif
     const size_t stride = (size_t)renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
     uint8_t *ptr = (uint8_t *)renderer->buffer->render_argb8888 +
                    (size_t)renderer->dirty_y * stride;
@@ -108,7 +149,7 @@ static bool live2d_renderer_clear_dirty_rect_ppa(live2d_renderer_t *renderer)
     return true;
 }
 
-static void live2d_renderer_clear_dirty_rect(live2d_renderer_t *renderer)
+static void live2d_renderer_clear_dirty_rect(live2d_renderer_t *renderer, l2d_instance_t *instance, uint32_t elapsed_ms)
 {
     if (!renderer || !renderer->buffer || !renderer->buffer->render_argb8888 ||
         renderer->dirty_w <= 0 || renderer->dirty_h <= 0) {
@@ -119,7 +160,7 @@ static void live2d_renderer_clear_dirty_rect(live2d_renderer_t *renderer)
     renderer->last_clear_sync_us = 0;
 
     if (renderer->use_ppa_clear && renderer->ppa_fill_handle &&
-        live2d_renderer_clear_dirty_rect_ppa(renderer)) {
+        live2d_renderer_clear_dirty_rect_ppa(renderer,instance,elapsed_ms)) {
         return;
     }
 
@@ -172,9 +213,13 @@ static inline uint16_t live2d_renderer_rgb565_at(const void *bgra, size_t index)
 static void live2d_renderer_convert_to_rgb565(sys_display_buffer_t *buffer)
 {
     const size_t count = (size_t)buffer->width * (size_t)buffer->height;
+#if CONFIG_L2D_CONVERT_PIE
+    l2d_p4_pie_rgb565(buffer->render_argb8888, buffer->frame_rgb565, count);
+#else
     for (size_t i = 0; i < count; ++i) {
         buffer->frame_rgb565[i] = live2d_renderer_rgb565_at(buffer->render_argb8888, i);
     }
+#endif
 }
 
 /** 统计PPA转换结果与软件参考值之间的RGB565像素差异数量。 */
@@ -346,10 +391,24 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
     }
 
     memset(renderer, 0, sizeof(*renderer));
+    if (!l2d_raster_workers_init()) return ESP_ERR_NO_MEM;
+    renderer->workers_acquired=true;
     renderer->buffer = buffer;
     if (l2d_output_create(&renderer->output) != L2D_OK) {
+        live2d_renderer_deinit(renderer);
         return ESP_ERR_NO_MEM;
     }
+#if CONFIG_L2D_CONVERT_BITSCRAMBLER
+    if (buffer->frame_rgb565) {
+        if (l2d_p4_bs_create(&renderer->bitscrambler_handle,buffer->render_bytes)!=ESP_OK ||
+            !l2d_p4_bs_selftest(renderer->bitscrambler_handle)) {
+            ESP_LOGE(TAG,"BitScrambler color/length/guard selftest FAIL");
+            live2d_renderer_deinit(renderer);
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG,"BitScrambler color/length/guard selftest PASS (GPSPI2 GDMA reserved)");
+    }
+#endif
     renderer->source_block_w = live2d_renderer_scaled_dimension(buffer->width);
     renderer->source_block_h = live2d_renderer_scaled_dimension(buffer->height);
     renderer->source_block_x = (buffer->width - renderer->source_block_w) / 2;
@@ -372,15 +431,24 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
     esp_err_t fill_ret = ppa_register_client(&fill_client_config,
                                              &renderer->ppa_fill_handle);
     if (fill_ret == ESP_OK) {
+#if CONFIG_L2D_CLEAR_OVERLAP
+        renderer->clear_done=xSemaphoreCreateBinary();
+        ppa_event_callbacks_t callbacks={.on_trans_done=clear_completed};
+        if (!renderer->clear_done ||
+            ppa_client_register_event_callbacks(renderer->ppa_fill_handle,&callbacks)!=ESP_OK) {
+            live2d_renderer_deinit(renderer);
+            return ESP_ERR_NO_MEM;
+        }
+#endif
         renderer->use_ppa_clear = true;
         ESP_LOGI(TAG, "PPA fill transparent clear enabled");
     } else {
         ESP_LOGW(TAG, "PPA fill unavailable for transparent clear (%s), using CPU clear",
                  esp_err_to_name(fill_ret));
     }
-#if CONFIG_L2D_CLEAR_CPU
+#if CONFIG_L2D_CLEAR_CPU || CONFIG_L2D_CLEAR_PIE
     renderer->use_ppa_clear = false;
-    ESP_LOGI(TAG, "CPU transparent clear selected by config");
+    ESP_LOGI(TAG, "CPU/PIE transparent clear selected by config");
 #endif
 
     if (!buffer->frame_rgb565) {
@@ -406,9 +474,9 @@ esp_err_t live2d_renderer_init(live2d_renderer_t *renderer, sys_display_buffer_t
     esp_err_t ret = ppa_register_client(&ppa_client_config, &renderer->ppa_srm_handle);
     if (ret == ESP_OK) {
         renderer->use_ppa_convert = true;
-#if CONFIG_L2D_CONVERT_CPU
+#if CONFIG_L2D_CONVERT_CPU || CONFIG_L2D_CONVERT_PIE || CONFIG_L2D_CONVERT_BITSCRAMBLER
         renderer->use_ppa_convert = false;
-        ESP_LOGI(TAG, "CPU RGB565 conversion selected by config");
+        ESP_LOGI(TAG, "Alternative RGB565 conversion selected by config");
 #endif
         ESP_LOGI(TAG,
                  "Renderer initialized: %dx%d ARGB8888 -> RGB565 via %s, rgb_swap=%d, byte_swap=%d, source block=%dx%d@(%d,%d)",
@@ -433,6 +501,10 @@ void live2d_renderer_deinit(live2d_renderer_t *renderer)
         return;
     }
 
+#if CONFIG_L2D_CONVERT_BITSCRAMBLER
+    l2d_p4_bs_free(renderer->bitscrambler_handle);
+    renderer->bitscrambler_handle=NULL;
+#endif
     l2d_output_destroy(renderer->output);
     renderer->output = NULL;
 
@@ -448,6 +520,8 @@ void live2d_renderer_deinit(live2d_renderer_t *renderer)
             ESP_LOGW(TAG, "PPA fill unregister failed: %s", esp_err_to_name(ret));
         }
     }
+    if (renderer->clear_done) vSemaphoreDelete((SemaphoreHandle_t)renderer->clear_done);
+    if (renderer->workers_acquired) l2d_raster_workers_shutdown();
     memset(renderer, 0, sizeof(*renderer));
 }
 
@@ -484,112 +558,9 @@ void live2d_renderer_set_rgb565_conversion(live2d_renderer_t *renderer, bool ena
  * @param elapsed_ms 距上次渲染的毫秒数，用于驱动动画
  * @return ESP_OK 成功；ESP_ERR_INVALID_ARG 参数无效或实例未加载
  */
-esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance_t *instance,
-                                       uint32_t elapsed_ms)
+static void live2d_renderer_record_stats(live2d_renderer_t *renderer,
+    uint32_t elapsed_ms,int x,int y,const char *clear_mode)
 {
-    l2d_instance_info_t info;
-    l2d_surface_t surface;
-    l2d_geometry_bounds_t geometry;
-    l2d_output_view_t view;
-    l2d_roi_rect_t current;
-    l2d_roi_rect_t conversion;
-    l2d_roi_rect_t previous;
-    int force_full = 0;
-    int history_ready = 0;
-    int conversion_ok = 1;
-    if (!renderer || !renderer->buffer || !renderer->output || !instance ||
-        !l2d_instance_is_loaded(instance)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    renderer->last_frame_id = renderer->buffer->frame_id;
-    renderer->last_ppa_convert_us = 0;
-    renderer->last_convert_sync_us = 0;
-
-    l2d_instance_info(instance, &info);
-
-    int x = (renderer->buffer->width - info.width) / 2;
-    int y = (renderer->buffer->height - info.height) / 2;
-    if (x < 0) {
-        x = 0;
-    }
-    if (y < 0) {
-        y = 0;
-    }
-
-    renderer->last_origin_x = x;
-    renderer->last_origin_y = y;
-    int64_t bounds_begin_us = esp_timer_get_time();
-    live2d_renderer_update_dirty_rect(renderer, x, y, info.width, info.height);
-    renderer->last_bounds_us = (uint32_t)(esp_timer_get_time() - bounds_begin_us);
-
-    int64_t clear_begin_us = esp_timer_get_time();
-
-    /* 阶段1：清空整张 BGRA 画布，再做一次 update+draw。 */
-    live2d_renderer_clear_dirty_rect(renderer);
-    int64_t engine_begin_us = esp_timer_get_time();
-    surface.data = renderer->buffer->render_argb8888;
-    surface.width = renderer->buffer->width;
-    surface.height = renderer->buffer->height;
-    surface.stride_bytes = renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
-    surface.buffer_size_bytes = renderer->buffer->render_bytes;
-    surface.format = L2D_PIXEL_BGRA8888_LE;
-    if (l2d_pipeline_frame(instance, &surface, x, y, elapsed_ms) != L2D_OK) {
-        l2d_output_invalidate(renderer->output);
-        return ESP_FAIL;
-    }
-
-    l2d_instance_geometry_bounds(instance, &geometry);
-    l2d_output_committed(renderer->output, &previous, &history_ready);
-    view.origin_x = x;
-    view.origin_y = y;
-    view.canvas_w = renderer->buffer->width;
-    view.canvas_h = renderer->buffer->height;
-    view.target = renderer->buffer->frame_rgb565;
-    view.backend_tag = renderer->use_ppa_convert ? 1 : 0;
-    view.conversion_enabled = renderer->convert_rgb565 ? 1 : 0;
-    view.content_revision = l2d_instance_roi_revision(instance);
-    if (l2d_output_plan(renderer->output, &view, &geometry, &current, &conversion,
-                        &force_full) != L2D_OK) {
-        l2d_output_invalidate(renderer->output);
-        return ESP_FAIL;
-    }
-    renderer->plan_previous = previous;
-    renderer->plan_current = current;
-    renderer->plan_conversion = conversion;
-    renderer->plan_force_full = force_full;
-    (void)history_ready;
-
-    int64_t convert_begin_us = esp_timer_get_time();
-    /* 阶段2：将 BGRA8888 渲染结果转换为显示所需的 RGB565 格式。
-     * 成功后才 commit。PPA 失败时整帧软件转换成功，同样 commit。 */
-    if (!renderer->convert_rgb565) {
-        /* LVGL overlay 路径直接消费 BGRA8888 + alpha，由 sys_display 的 PPA BLEND
-         * 在 flush 前融合到背景层；这里无需再做 RGB565 转换或 PPA 自检。 */
-    } else if (renderer->use_ppa_convert) {
-        esp_err_t ret = (renderer->rendered_frames == 0)
-                            ? live2d_renderer_select_ppa_config(renderer)
-                            : live2d_renderer_convert_to_rgb565_ppa(renderer);
-        if (ret != ESP_OK) {
-            renderer->use_ppa_convert = false;
-            ESP_LOGW(TAG, "Disabling PPA conversion, reverting to software: %s",
-                     esp_err_to_name(ret));
-            live2d_renderer_convert_to_rgb565(renderer->buffer);
-        }
-    } else {
-        live2d_renderer_convert_to_rgb565(renderer->buffer);
-    }
-    if (conversion_ok) {
-        l2d_output_commit(renderer->output, &view, current);
-    } else {
-        l2d_output_invalidate(renderer->output);
-    }
-    int64_t frame_end_us = esp_timer_get_time();
-
-    /* 阶段3：统计渲染和转换耗时，用于性能监控 */
-    renderer->last_clear_us = (uint32_t)(engine_begin_us - clear_begin_us);
-    renderer->last_engine_us = (uint32_t)(convert_begin_us - engine_begin_us);
-    renderer->last_render_us = (uint32_t)(convert_begin_us - clear_begin_us);
-    renderer->last_convert_us = (uint32_t)(frame_end_us - convert_begin_us);
     renderer->accumulated_render_us += renderer->last_render_us;
     renderer->accumulated_clear_us += renderer->last_clear_us;
     renderer->accumulated_clear_fill_us += renderer->last_clear_fill_us;
@@ -616,7 +587,7 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance
                  (unsigned long long)renderer->avg_clear_sync_us,
                  (unsigned long long)renderer->avg_engine_us,
                  (unsigned long long)renderer->avg_convert_us,
-                 renderer->use_ppa_clear ? "ppa" : "cpu");
+                 clear_mode);
 
         renderer->accumulated_render_us = 0;
         renderer->accumulated_clear_us = 0;
@@ -625,5 +596,150 @@ esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance
         renderer->accumulated_engine_us = 0;
         renderer->accumulated_convert_us = 0;
     }
+}
+
+esp_err_t live2d_renderer_render_frame(live2d_renderer_t *renderer, l2d_instance_t *instance,
+                                       uint32_t elapsed_ms)
+{
+    l2d_instance_info_t info;
+    l2d_surface_t surface;
+    l2d_geometry_bounds_t geometry;
+    l2d_output_view_t view;
+    l2d_roi_rect_t current;
+    l2d_roi_rect_t conversion;
+    l2d_roi_rect_t previous;
+    int force_full = 0;
+    int history_ready = 0;
+    int conversion_ok = 1;
+    if (!renderer || !renderer->buffer || !renderer->output || !instance ||
+        !l2d_instance_is_loaded(instance)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    renderer->last_frame_id = renderer->buffer->frame_id;
+    renderer->last_ppa_convert_us = 0;
+    renderer->last_convert_sync_us = 0;
+
+    l2d_instance_info(instance, &info);
+
+    int x = (renderer->buffer->width - info.width) / 2;
+    int y = (renderer->buffer->height - info.height) / 2;
+    /* Signed origins center a tall model when its uniform render scale fits
+     * the panel. Clamping a negative origin displaced light.live downward. */
+
+    renderer->last_origin_x = x;
+    renderer->last_origin_y = y;
+#if CONFIG_L2D_RENDER_RGB565_BANDS
+    if (renderer->convert_rgb565 && l2d_instance_can_render_rgb565(instance)) {
+        int64_t begin=esp_timer_get_time();
+        l2d_instance_update(instance,elapsed_ms);
+        int64_t draw_begin=esp_timer_get_time();
+        l2d_surface_t rgb={renderer->buffer->frame_rgb565,renderer->buffer->width,
+            renderer->buffer->height,renderer->buffer->width*2,renderer->buffer->frame_bytes,
+            L2D_PIXEL_RGB565_LE};
+        l2d_surface_t capture={renderer->buffer->render_argb8888,renderer->buffer->width,
+            renderer->buffer->height,renderer->buffer->width*4,renderer->buffer->render_bytes,
+            L2D_PIXEL_BGRA8888_LE};
+        if (l2d_instance_render_rgb565(instance,&rgb,x,y,renderer->capture_bgra ? &capture : NULL)!=L2D_OK)
+            return ESP_FAIL;
+        renderer->last_clear_us=renderer->last_clear_fill_us=renderer->last_clear_sync_us=0;
+        renderer->last_convert_us=0; /* Conversion is inside the band draw/join timing. */
+        renderer->last_engine_us=(uint32_t)(esp_timer_get_time()-draw_begin);
+        renderer->last_render_us=(uint32_t)(esp_timer_get_time()-begin);
+        renderer->last_bounds_us=0;
+        renderer->dirty_x=renderer->dirty_y=0;
+        renderer->dirty_w=renderer->buffer->width;
+        renderer->dirty_h=renderer->buffer->height;
+        live2d_renderer_record_stats(renderer,elapsed_ms,x,y,"sram_band");
+        l2d_output_invalidate(renderer->output);
+        return ESP_OK;
+    }
+#endif
+    int64_t bounds_begin_us = esp_timer_get_time();
+    live2d_renderer_update_dirty_rect(renderer, x, y, info.width, info.height);
+    renderer->last_bounds_us = (uint32_t)(esp_timer_get_time() - bounds_begin_us);
+
+    int64_t clear_begin_us = esp_timer_get_time();
+
+    /* 阶段1：清空整张 BGRA 画布，再做一次 update+draw。 */
+    renderer->pose_updated=false;
+    live2d_renderer_clear_dirty_rect(renderer,instance,elapsed_ms);
+    int64_t engine_begin_us = esp_timer_get_time();
+    surface.data = renderer->buffer->render_argb8888;
+    surface.width = renderer->buffer->width;
+    surface.height = renderer->buffer->height;
+    surface.stride_bytes = renderer->buffer->width * LIVE2D_RENDERER_BGRA_BYTES;
+    surface.buffer_size_bytes = renderer->buffer->render_bytes;
+    surface.format = L2D_PIXEL_BGRA8888_LE;
+    l2d_status_t render_status=renderer->pose_updated ?
+        l2d_instance_render_current(instance,&surface,x,y) :
+        l2d_pipeline_frame(instance,&surface,x,y,elapsed_ms);
+    if (render_status != L2D_OK) {
+        l2d_output_invalidate(renderer->output);
+        return ESP_FAIL;
+    }
+
+    l2d_instance_geometry_bounds(instance, &geometry);
+    l2d_output_committed(renderer->output, &previous, &history_ready);
+    view.origin_x = x;
+    view.origin_y = y;
+    view.canvas_w = renderer->buffer->width;
+    view.canvas_h = renderer->buffer->height;
+    view.target = renderer->buffer->frame_rgb565;
+    view.backend_tag = renderer->bitscrambler_handle ? 2 : renderer->use_ppa_convert ? 1 : 0;
+    view.conversion_enabled = renderer->convert_rgb565 ? 1 : 0;
+    view.content_revision = l2d_instance_roi_revision(instance);
+    if (l2d_output_plan(renderer->output, &view, &geometry, &current, &conversion,
+                        &force_full) != L2D_OK) {
+        l2d_output_invalidate(renderer->output);
+        return ESP_FAIL;
+    }
+    renderer->plan_previous = previous;
+    renderer->plan_current = current;
+    renderer->plan_conversion = conversion;
+    renderer->plan_force_full = force_full;
+    (void)history_ready;
+
+    int64_t convert_begin_us = esp_timer_get_time();
+    /* 阶段2：将 BGRA8888 渲染结果转换为显示所需的 RGB565 格式。
+     * 成功后才 commit。PPA 失败时整帧软件转换成功，同样 commit。 */
+    if (!renderer->convert_rgb565) {
+        /* LVGL overlay 路径直接消费 BGRA8888 + alpha，由 sys_display 的 PPA BLEND
+         * 在 flush 前融合到背景层；这里无需再做 RGB565 转换或 PPA 自检。 */
+#if CONFIG_L2D_CONVERT_BITSCRAMBLER
+    } else if (renderer->bitscrambler_handle) {
+        if (l2d_p4_bs_convert(renderer->bitscrambler_handle,
+            renderer->buffer->render_argb8888,renderer->buffer->render_bytes,
+            renderer->buffer->frame_rgb565,renderer->buffer->frame_bytes)!=ESP_OK) {
+            l2d_output_invalidate(renderer->output);
+            return ESP_FAIL;
+        }
+#endif
+    } else if (renderer->use_ppa_convert) {
+        esp_err_t ret = (renderer->rendered_frames == 0)
+                            ? live2d_renderer_select_ppa_config(renderer)
+                            : live2d_renderer_convert_to_rgb565_ppa(renderer);
+        if (ret != ESP_OK) {
+            renderer->use_ppa_convert = false;
+            ESP_LOGW(TAG, "Disabling PPA conversion, reverting to software: %s",
+                     esp_err_to_name(ret));
+            live2d_renderer_convert_to_rgb565(renderer->buffer);
+        }
+    } else {
+        live2d_renderer_convert_to_rgb565(renderer->buffer);
+    }
+    if (conversion_ok) {
+        l2d_output_commit(renderer->output, &view, current);
+    } else {
+        l2d_output_invalidate(renderer->output);
+    }
+    int64_t frame_end_us = esp_timer_get_time();
+
+    /* 阶段3：统计渲染和转换耗时，用于性能监控 */
+    renderer->last_clear_us = (uint32_t)(engine_begin_us - clear_begin_us);
+    renderer->last_engine_us = (uint32_t)(convert_begin_us - engine_begin_us);
+    renderer->last_render_us = (uint32_t)(convert_begin_us - clear_begin_us);
+    renderer->last_convert_us = (uint32_t)(frame_end_us - convert_begin_us);
+    live2d_renderer_record_stats(renderer,elapsed_ms,x,y,
+        renderer->use_ppa_clear ? "ppa" : "cpu");
     return ESP_OK;
 }

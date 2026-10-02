@@ -1,14 +1,21 @@
+# ESP32-P4 revision 1.x, WT99P4C5-S1; measured CPU clock 360 MHz.
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_1=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_L2D_SRM_ROI=y
+
 # ---- LVGL ----
 CONFIG_LV_DEF_REFR_PERIOD=5
 CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
-# draw unit 2->1：恢复 PPA 硬件加速（消除 "PPA acceleration requires DRAW_UNIT_CNT==1" 警告），
-# 省 1 个 32K draw 线程栈（internal）。代价：SW 绘制并行度下降，需实测 FPS。
+# Single software draw unit; Live2D uses its own PPA conversion path.
 CONFIG_LV_DRAW_BUF_ALIGN=64
-# [PPA-二分] 原值 y。临时关 LVGL 自带 PPA draw unit(路径B) 排查蓝屏
+# Keep LVGL's PPA draw unit disabled to avoid sharing Live2D transactions.
 CONFIG_LV_USE_PPA=n
 CONFIG_LV_USE_PPA_IMG=n
 CONFIG_LV_OBJ_STYLE_CACHE=y
+CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
 CONFIG_LV_USE_CLIB_MALLOC=y

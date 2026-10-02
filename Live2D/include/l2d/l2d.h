@@ -1,6 +1,6 @@
 /**
  * Live2D Embedded Runtime.
- * One production runtime for host, ESP32-P4, and ESP32-S3.
+ * One portable runtime, with host and ESP32-P4 examples.
  * The public headers do not include a platform SDK or an editor engine.
  */
 #ifndef L2D_H

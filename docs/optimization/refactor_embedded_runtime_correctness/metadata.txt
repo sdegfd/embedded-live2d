@@ -1,6 +1,0 @@
-esp_commit=adbc38aafe3cd5b92ee040dc446f17394e1bbda8
-model_sha256=1d7f21471dcedee2d205904791df7147c63760269462ad5d7169a97afe386100
-model_size=800796
-mode=correctness
-scale_q100=100
-srm_roi=1

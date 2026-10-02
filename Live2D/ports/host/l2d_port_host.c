@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "l2d_pe_port.h"
+#include "l2d_raster_nearest.h"
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -70,3 +71,18 @@ int64_t l2d_pe_time_us(void)
     }
     return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
 }
+
+void l2d_port_raster_dispatch(const l2d_raster_job *jobs, int count, const px_surface *surface)
+{
+    /* Same scratch bands and painter order as the P4, serialized on Host. */
+    _Alignas(16) unsigned char scratch[32768];
+    if (surface->rgb565_sink) {
+        l2d_raster_jobs_rgb565(jobs,count,surface,scratch,sizeof(scratch),2,0);
+        l2d_raster_jobs_rgb565(jobs,count,surface,scratch,sizeof(scratch),2,1);
+        return;
+    }
+    l2d_raster_jobs_scratch(jobs,count,surface,scratch,sizeof(scratch),2,0);
+    l2d_raster_jobs_scratch(jobs,count,surface,scratch,sizeof(scratch),2,1);
+}
+
+int l2d_port_rgb565_supported(void) { return 1; }

@@ -28,6 +28,11 @@ extern "C" {
 /** Live2D 渲染器结构体。管理渲染缓冲区和 ARGB8888 -> RGB565 格式转换。 */
 typedef struct {
     sys_display_buffer_t *buffer;          /**< 显示缓冲区指针（含 ARGB8888 渲染缓冲和 RGB565 帧缓冲） */
+    void *clear_done;                      /**< PPA completion semaphore, owned. */
+    bool capture_bgra;                    /**< Untimed full BGRA capture of RGB565 band rendering. */
+    bool pose_updated;                    /**< Pose already evaluated during this clear. */
+    bool workers_acquired;                /**< Lifecycle reference on shared workers. */
+    void *bitscrambler_handle;             /**< Owned optional format-conversion backend. */
     l2d_output_t *output;                  /**< Conversion history for this display target. */
     uint32_t rendered_frames;              /**< 已渲染帧数计数 */
     uint32_t last_render_us;               /**< 上一帧渲染耗时（微秒） */

@@ -22,5 +22,36 @@
       "mouth"
     ]
   },
-  "historical_results": "docs/optimization/ and docs/history/refactor/"
+  "test_models": {
+    "light": {
+      "path": "models/light.live",
+      "device_path": "/sdcard/light.live",
+      "sha256": "4fe6e75270f59033a5be07073878ad0210e1e88cc3759fd16a2f9a56eadc7bda",
+      "size_bytes": 1248800,
+      "canvas": [
+        480,
+        640
+      ],
+      "layers": 14,
+      "vertices": 459,
+      "triangles": 534,
+      "textures": 14,
+      "animations": 0,
+      "axes": [
+        "left_eye",
+        "right_eye",
+        "mouth",
+        "head_yaw",
+        "head_raw",
+        "head_pitch",
+        "left_arm",
+        "right_arm",
+        "left_leg",
+        "right_leg",
+        "body_sway",
+        "front_hair_sway",
+        "back_hair_sway"
+      ]
+    }
+  }
 }

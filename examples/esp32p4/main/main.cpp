@@ -37,6 +37,9 @@
 #include "sys_display_flush.h"
 #include "sys_monitor.h"
 #include "sys_storage.h"
+#if CONFIG_L2D_EXAMPLE_LIGHT
+#include "light_model_example.h"
+#endif
 
 static const char *TAG = "l2d_baseline";
 
@@ -481,7 +484,11 @@ static void render_task(void *arg)
 
 extern "C" void app_main(void)
 {
+#if CONFIG_L2D_EXAMPLE_LIGHT
+    l2d_light_example_start();
+#else
     ESP_LOGI(TAG, "=== Live2D RT30 baseline ===");
     xTaskCreatePinnedToCore(render_task, "l2d_base", TASK_STACK, NULL, TASK_PRIORITY, NULL,
                             TASK_CORE);
+#endif
 }

@@ -818,9 +818,9 @@ if (esp_lv_adapter_lock(-1) == ESP_OK) {
 
 ## See Also
 
-- [ESP LV FS Component](../esp_lv_fs/README.md)
-- [ESP LV Decoder Component](../esp_lv_decoder/README.md)
-- [ESP Mmap Assets Component](../esp_mmap_assets/README.md)
+- [ESP LV FS Component](https://components.espressif.com/components/espressif/esp_lv_fs)
+- [ESP LV Decoder Component](https://components.espressif.com/components/espressif/esp_lv_decoder)
+- [ESP Mmap Assets Component](https://components.espressif.com/components/espressif/esp_mmap_assets)
 
 ---
 

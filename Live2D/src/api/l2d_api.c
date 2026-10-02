@@ -532,3 +532,32 @@ uint32_t l2d_instance_roi_revision(const l2d_instance_t *instance)
 {
     return instance ? live2d_engine_get_roi_revision(instance->engine) : 0;
 }
+
+bool l2d_instance_can_render_rgb565(const l2d_instance_t *instance)
+{
+    return instance && live2d_engine_can_rgb565(instance->engine);
+}
+l2d_status_t l2d_instance_render_rgb565(l2d_instance_t *instance,
+    const l2d_surface_t *target,int x,int y,const l2d_surface_t *capture)
+{
+    if (!instance || !l2d_instance_is_loaded(instance) || !target || !target->data)
+        return L2D_ERR_INVALID_ARG;
+    if (target->format!=L2D_PIXEL_RGB565_LE) return L2D_ERR_UNSUPPORTED;
+    if (target->width<=0 || target->width>8192 || target->height<=0 ||
+        target->stride_bytes!=target->width*2 || (uintptr_t)target->data%2 ||
+        (size_t)target->height>target->buffer_size_bytes/(size_t)target->stride_bytes)
+        return L2D_ERR_RANGE;
+    if (capture && (capture->width!=target->width || capture->height!=target->height ||
+        !l2d_surface_tight_bgra(capture))) return L2D_ERR_RANGE;
+    if (capture) {
+        uintptr_t rgb=(uintptr_t)target->data, bgra=(uintptr_t)capture->data;
+        size_t rgb_bytes=(size_t)target->stride_bytes*target->height;
+        size_t bgra_bytes=(size_t)capture->stride_bytes*capture->height;
+        if ((rgb<=bgra && bgra-rgb<rgb_bytes) ||
+            (bgra<rgb && rgb-bgra<bgra_bytes)) return L2D_ERR_RANGE;
+    }
+    if (!live2d_engine_can_rgb565(instance->engine)) return L2D_ERR_UNSUPPORTED;
+    live2d_engine_render_rgb565(instance->engine,target->data,capture ? capture->data : NULL,
+                                target->width,target->height,x,y);
+    return L2D_OK;
+}

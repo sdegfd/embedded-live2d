@@ -21,6 +21,9 @@
 #ifndef L2D_CFG_PROFILE_ROI_DIAG
 #define L2D_CFG_PROFILE_ROI_DIAG 0
 #endif
+#ifndef L2D_CFG_RASTER_BATCH
+#define L2D_CFG_RASTER_BATCH 0
+#endif
 #ifndef L2D_CFG_SRM_ROI
 #define L2D_CFG_SRM_ROI 0
 #endif

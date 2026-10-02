@@ -10,6 +10,7 @@
 #include "PX_LiveFramework.h"
 #include "l2d_allocator.h"
 #include "l2d_pe_port.h"
+#include "l2d_raster_nearest.h"
 #include "live2d_engine_diag.h"
 
 #include <stdlib.h>
@@ -274,6 +275,11 @@ static size_t live2d_instance_pool_size(const PX_LiveFramework *live, int *ok)
     for (i = 0; i < live->layers.size; ++i) {
         const PX_LiveLayer *layer = PX_VECTORAT(PX_LiveLayer, &live->layers, i);
         bytes = live2d_add_size(bytes, live2d_vector_payload(&layer->vertices, ok), ok);
+#if L2D_CFG_RASTER_BATCH && !L2D_CFG_PROFILE_DETAIL
+        size_t triangles=(size_t)layer->triangles.size;
+        if (triangles>(size_t)-1/sizeof(l2d_raster_job)) { *ok=0; return 0; }
+        bytes=live2d_add_size(bytes,triangles*sizeof(l2d_raster_job),ok);
+#endif
         bytes = live2d_add_size(bytes, 256u, ok);
     }
     for (i = 0; i < live->liveAnimations.size; ++i) {
@@ -418,6 +424,17 @@ l2d_status_t live2d_engine_clone_shared(const live2d_engine_t *source,
         }
     }
 
+#if L2D_CFG_RASTER_BATCH && !L2D_CFG_PROFILE_DETAIL
+    size_t job_count=0;
+    for (i=0;i<source->live.layers.size;++i)
+        job_count+=(size_t)PX_VECTORAT(PX_LiveLayer,&source->live.layers,i)->triangles.size;
+    if (job_count) {
+        if (job_count>INT32_MAX/sizeof(l2d_raster_job)) goto fail;
+        engine->live.rasterJobs=MP_Malloc(&engine->pool,(px_uint)(job_count*sizeof(l2d_raster_job)));
+        if (!engine->live.rasterJobs) goto fail;
+        engine->live.rasterJobCapacity=(px_int)job_count;
+    }
+#endif
     engine->live.realtime = source->live.realtime;
     engine->live.realtime.mp = &engine->pool;
     engine->live.realtime.sharedBaked = PX_TRUE;
@@ -971,4 +988,19 @@ void live2d_engine_get_realtime_stats(live2d_engine_t *engine, live2d_realtime_s
     out->static_bytes = stats.staticBytes;
     out->runtime_bytes = stats.runtimeBytes;
     out->selected_sample_bytes = stats.selectedSampleBytes;
+}
+
+bool live2d_engine_can_rgb565(const live2d_engine_t *engine)
+{
+    return engine && engine->loaded && l2d_port_rgb565_supported() &&
+        PX_LiveFrameworkCanBatch(&engine->live);
+}
+void live2d_engine_render_rgb565(live2d_engine_t *engine, void *rgb, void *capture,
+                                 int width,int height,int x,int y)
+{
+    px_surface surface;
+    live2d_engine_bind_surface(&surface,rgb,width,height);
+    surface.surfaceBuffer=NULL;
+    surface.rgb565_sink=rgb; surface.bgra_capture=capture;
+    PX_LiveFrameworkRenderCurrent(&surface,&engine->live,x,y,PX_ALIGN_LEFTTOP);
 }

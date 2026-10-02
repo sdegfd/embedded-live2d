@@ -1,0 +1,7 @@
+scenario,metric,count,avg,p95,max
+STATIC,raster_us,50,10966.26,11054,11096
+STATIC,frame_total_us,50,17508.50,17681,17728
+EYE_L_SWEEP,raster_us,50,10900.02,10997,11019
+EYE_L_SWEEP,frame_total_us,50,18904.50,19417,19705
+MULTI_AXIS,raster_us,50,10957.20,11053,11065
+MULTI_AXIS,frame_total_us,50,19487.44,20086,20147

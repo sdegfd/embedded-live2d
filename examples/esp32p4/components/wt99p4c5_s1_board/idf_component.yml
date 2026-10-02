@@ -6,6 +6,6 @@ dependencies:
   esp_lcd_touch_gt911: ^1
   espressif/esp_lvgl_adapter:
     public: true
-    version: "*"
+    override_path: "../espressif__esp_lvgl_adapter"
   idf: '>=5.3'
   lvgl/lvgl: '>=8,<10'

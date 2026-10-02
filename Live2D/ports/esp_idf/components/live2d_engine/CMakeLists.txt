@@ -7,12 +7,14 @@ set(L2D_ESP_SOURCES "")
 foreach(src ${L2D_RUNTIME_SOURCES})
     list(APPEND L2D_ESP_SOURCES "${L2D_ROOT}/${src}")
 endforeach()
-list(APPEND L2D_ESP_SOURCES "${L2D_ROOT}/ports/esp_idf/common/l2d_port_esp.c")
+list(APPEND L2D_ESP_SOURCES "${L2D_ROOT}/ports/esp_idf/common/l2d_port_esp.c"
+    "${L2D_ROOT}/ports/esp_idf/common/l2d_raster_workers.c")
 
 idf_component_register(
     SRCS ${L2D_ESP_SOURCES}
     INCLUDE_DIRS
         "${L2D_ROOT}/include"
+        "${L2D_ROOT}/ports/esp_idf/common"
     PRIV_INCLUDE_DIRS
         "${L2D_ROOT}/src/engine"
         "${L2D_ROOT}/src/memory"
@@ -20,7 +22,7 @@ idf_component_register(
         "${L2D_ROOT}/src/internal"
         "${L2D_ROOT}/src/internal/pe/core"
         "${L2D_ROOT}/src/internal/pe/kernel"
-    REQUIRES esp_common esp_timer heap)
+    REQUIRES esp_common esp_timer heap freertos)
 
 function(l2d_cfg name config_var)
     if(${config_var})
@@ -30,6 +32,7 @@ function(l2d_cfg name config_var)
     endif()
 endfunction()
 
+l2d_cfg(L2D_CFG_RASTER_BATCH CONFIG_L2D_RASTER_WORKERS)
 l2d_cfg(L2D_CFG_PROFILE_TIMING CONFIG_L2D_PROFILE_TIMING)
 l2d_cfg(L2D_CFG_PROFILE_FINE CONFIG_L2D_PROFILE_FINE)
 l2d_cfg(L2D_CFG_PROFILE_VISUAL CONFIG_L2D_PROFILE_VISUAL)
@@ -38,7 +41,7 @@ l2d_cfg(L2D_CFG_PROFILE_ROI_DIAG CONFIG_L2D_PROFILE_ROI_DIAG)
 l2d_cfg(L2D_CFG_SRM_ROI CONFIG_L2D_SRM_ROI)
 
 # Match the host runtime. Host pose CRCs are built with contraction off and
-# aliasing disabled; P4 and S3 must use the same rules.
+# aliasing disabled; all ports must use the same rules.
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -O2
     -fno-strict-aliasing

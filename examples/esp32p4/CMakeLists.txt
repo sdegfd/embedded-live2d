@@ -20,4 +20,7 @@ set(EXTRA_COMPONENT_DIRS
     ${L2D_ROOT}/Live2D/ports/esp_idf/components)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# Local override paths in generated locks are machine-specific. Keep each
+# configuration's lock with its build artifacts instead of in source control.
+idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_BINARY_DIR}/dependencies.lock")
 project(live2d_rt30_baseline)

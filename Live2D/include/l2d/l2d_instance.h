@@ -119,6 +119,18 @@ void l2d_instance_mesh_counts(const l2d_instance_t *instance, l2d_mesh_counts_t 
 void l2d_instance_update(l2d_instance_t *instance, uint32_t elapsed_ms);
 l2d_status_t l2d_instance_render_current(l2d_instance_t *instance,
                                          const l2d_surface_t *surface, int x, int y);
+/** Terminal RGB565 output is optional: requires prepared ordered mesh jobs and
+ * port scratch support. Normal BGRA output remains available independently. */
+bool l2d_instance_can_render_rgb565(const l2d_instance_t *instance);
+/** Render current pose using full BGRA precision within each scratch band,
+ * then pack exactly the same RGB565 pixels as the normal software converter.
+ * Clears to transparent black internally. Does not update animation or allocate.
+ * target: tight RGB565, 2-byte aligned, width <=8192. Optional capture: distinct
+ * tight BGRA buffer of identical dimensions, for untimed correctness/debugging.
+ * Unsupported models/ports are rejected before writing either buffer. */
+l2d_status_t l2d_instance_render_rgb565(l2d_instance_t *instance,
+    const l2d_surface_t *target,int x,int y,const l2d_surface_t *capture);
+
 l2d_status_t l2d_pipeline_frame(l2d_instance_t *instance, const l2d_surface_t *surface,
                                 int x, int y, uint32_t elapsed_ms);
 

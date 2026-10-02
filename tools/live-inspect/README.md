@@ -1,6 +1,6 @@
 # live-inspect
 
-把 PainterEngine `.live` 读成 JSON。程序是单个 exe，运行时不需要 Python、Visual Studio 或 PainterEngine。
+把 PainterEngine `.live` 读成 JSON。源码需要 MSVC 构建；生成的单个 exe 在运行时不需要 Python、Visual Studio 或 PainterEngine。仓库不包含预编译 exe。
 
 ```bat
 tools\live-inspect\live-inspect.exe models\esp.live
@@ -11,7 +11,7 @@ tools\live-inspect\live-inspect.exe models\light.live -o models\light.json
 
 JSON 的 `schema` 是 `live-inspect-v1`。里面有画布、纹理、控制点和父子层级、时间轴里相对静止姿态有变化的通道，以及每条实时轴 30 个采样。和静止值相同的通道不写出。每个文件里的 `notes` 说明平移、骨骼角、伸缩、画面变换、冲量和顶点偏移分别表示什么。
 
-`models/esp.live` 仍是唯一正式测试模型。`models/light.live` 和它的 JSON 只给动作逻辑参考，不能拿去替代正式基准。
+`models/esp.live` 仍是原有正式回归基准。`models/light.live` 另有 [P4 测试例程](../../examples/esp32p4/light-example.md)，独立记录帧率、CPU 和正确性；它不替换历史 esp 基准。
 
 重新编译：
 

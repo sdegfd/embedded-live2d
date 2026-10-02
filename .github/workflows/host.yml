@@ -1,0 +1,19 @@
+name: Host runtime
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        bands: ['OFF', 'ON']
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev
+      - run: python3 Live2D/tools/check_l2d_boundaries.py
+      - run: python3 Live2D/tools/check_l2d_model_baseline.py --model esp
+      - run: python3 Live2D/tools/check_l2d_model_baseline.py --model light
+      - run: cmake -S . -B build/host -G Ninja -DL2D_RASTER_BATCH=${{ matrix.bands }} -DL2D_ENABLE_ASAN=ON -DL2D_ENABLE_UBSAN=ON
+      - run: cmake --build build/host
+      - run: ctest --test-dir build/host --output-on-failure
+      - run: ./build/host/l2d_test_light --crc-out build/host/light.csv > build/host/light.log
+      - run: python3 examples/esp32p4/tools/compare_light_crc.py benchmarks/p4/light-pixels.csv build/host/light.csv

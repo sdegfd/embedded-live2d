@@ -355,6 +355,9 @@ typedef struct _PX_LiveFramework
 	PX_LiveRealtime realtime;                /**< RT30 实时多轴求值器 */
 	PX_LiveFrameworkFrameProfile frameProfile; /**< Last frame phase timings */
 	PX_LiveGeometryBounds geometryBounds;      /**< Last raster frame geometry bounds */
+	struct l2d_raster_job *rasterJobs; /* Per-instance, preallocated. */
+	px_int rasterJobCapacity, rasterJobCount;
+	px_bool rasterCollect;
 	px_uint32 meshPoseRevision;             /**< Revision already applied to vertices */
 
 	/* ── 动画虚拟机 ───────────────────────── */
@@ -392,6 +395,7 @@ px_void PX_LiveFrameworkStop(PX_LiveFramework *plive);
 px_void PX_LiveFrameworkUpdate(PX_LiveFramework *plive,px_dword elapsed);
 px_void PX_LiveFrameworkGetTrigCacheFrame(const PX_LiveFramework *plive, px_dword *hit, px_dword *miss);
 /** 仅渲染当前姿态，不推进动画状态。保留 ESP 的 renderScale/快速采样/sin-cos 缓存路径。 */
+px_bool PX_LiveFrameworkCanBatch(const PX_LiveFramework *plive);
 px_void PX_LiveFrameworkRenderCurrent(px_surface *psurface,PX_LiveFramework *plive,px_int x,px_int y,PX_ALIGN refPoint);
 
 /* ── 渲染函数 ─────────────────────────────────── */

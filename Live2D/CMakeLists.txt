@@ -20,7 +20,8 @@ target_include_directories(l2d_runtime
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/internal/pe/kernel)
-target_compile_definitions(l2d_runtime PRIVATE L2D_CFG_SRM_ROI=1)
+option(L2D_RASTER_BATCH "Exercise preallocated disjoint-row raster jobs" OFF)
+target_compile_definitions(l2d_runtime PRIVATE L2D_CFG_SRM_ROI=1 L2D_CFG_RASTER_BATCH=$<BOOL:${L2D_RASTER_BATCH}>)
 target_compile_options(l2d_runtime PRIVATE
     -O2
     -fno-strict-aliasing
@@ -64,6 +65,27 @@ endif()
 
 set_target_properties(l2d_test_runtime PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 add_test(NAME l2d_runtime COMMAND l2d_test_runtime)
+
+add_executable(l2d_test_light tests/runtime/test_light_model.c
+    tests/support/l2d_test_allocator.c)
+target_include_directories(l2d_test_light PRIVATE tests/support bench/scenarios)
+target_compile_definitions(l2d_test_light PRIVATE
+    L2D_MODEL_LIGHT_LIVE="${CMAKE_SOURCE_DIR}/models/light.live")
+target_link_libraries(l2d_test_light PRIVATE l2d_runtime m z crypto)
+target_link_options(l2d_test_light PRIVATE -Wl,--gc-sections)
+target_compile_options(l2d_test_light PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off ${L2D_SAN_FLAGS})
+set_target_properties(l2d_test_light PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+add_test(NAME l2d_light_model COMMAND l2d_test_light)
+if(L2D_RASTER_BATCH)
+    add_test(NAME l2d_light_rgb565_bands COMMAND l2d_test_light --bands)
+endif()
+
+add_executable(l2d_test_nearest tests/raster/test_nearest.c tests/raster/reference_nearest.c)
+target_include_directories(l2d_test_nearest PRIVATE src/internal src/internal/pe/core src/internal/pe/kernel)
+target_compile_options(l2d_test_nearest PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off ${L2D_SAN_FLAGS})
+target_link_libraries(l2d_test_nearest PRIVATE l2d_runtime m)
+set_target_properties(l2d_test_nearest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+add_test(NAME l2d_nearest_pixels COMMAND l2d_test_nearest)
 
 add_executable(l2d_host_benchmark bench/runners/host_benchmark.c)
 target_include_directories(l2d_host_benchmark PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bench/scenarios)

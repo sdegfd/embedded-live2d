@@ -1,4 +1,22 @@
-menu "Live2D profiling baseline"
+menu "Embedded Live2D"
+config L2D_EXAMPLE_LIGHT
+    bool "Run the 13-axis light.live hardware test example"
+    default n
+    help
+        Runs a separate light model correctness and sustained FPS/CPU suite.
+        Leaves the esp.live baseline selectable by disabling this option.
+
+config L2D_LIGHT_FROM_SD
+    bool "Read light.live from /sdcard/light.live instead of firmware flash"
+    depends on L2D_EXAMPLE_LIGHT
+    default n
+
+config L2D_LIGHT_PHASE_SECONDS
+    int "Measured seconds per light workload (plus 2 s warmup)"
+    depends on L2D_EXAMPLE_LIGHT
+    range 10 120
+    default 30
+
 config L2D_PROFILE_TIMING
     bool "Record per-frame pipeline timings into a fixed ring"
     default y
@@ -15,6 +33,63 @@ config L2D_PROFILE_CORRECTNESS
     help
         This independent mode renders fixed poses and computes CRC after each frame.
         It must not be used for timing benchmarks.
+
+config L2D_RASTER_WORKERS
+    bool "Rasterize disjoint rows on both P4 CPU cores"
+    depends on !L2D_PROFILE_DETAIL
+    default n
+    help
+        Preallocates an ordered triangle list per instance. Workers preserve
+        painter order within each row and join before PPA conversion.
+
+config L2D_RENDER_RGB565_BANDS
+    bool "Compose exact BGRA in SRAM bands then write RGB565"
+    depends on L2D_RASTER_WORKERS
+    default n
+    help
+        Uses bounded SRAM per core. Each band blends at full BGRA precision,
+        then writes terminal RGB565. The BGRA API supports alpha composition.
+
+config L2D_RASTER_SCRATCH_BYTES
+    int "Internal SRAM scratch bytes per raster worker"
+    depends on L2D_RASTER_WORKERS
+    range 32768 98304
+    default 65536 if L2D_RENDER_RGB565_BANDS
+    default 32768
+    help
+        Allocated at renderer initialization when a scratch path is enabled.
+        Larger bands reduce traversal and consume more internal SRAM.
+
+config L2D_RASTER_SCRATCH
+    bool "Experimental SRAM band raster scratch"
+    depends on L2D_RASTER_WORKERS
+    default n
+    help
+        Retains the measured band-copy experiment; copying a full BGRA canvas
+        both ways can be slower than direct PSRAM rendering. Disabled by default.
+
+config L2D_CLEAR_OVERLAP
+    bool "Evaluate pose while PPA clears the framebuffer"
+    depends on !L2D_CLEAR_CPU && !L2D_CLEAR_PIE
+    default n
+    help
+        Uses a PPA completion semaphore. Pose is evaluated once while the
+        hardware fills; raster waits for completion and cache invalidation.
+
+config L2D_CLEAR_PIE
+    bool "Use exact ESP32-P4 PIE SIMD clear"
+    default n
+
+config L2D_CONVERT_BITSCRAMBLER
+    bool "Exact BGRA8888 to RGB565 using BitScrambler DMA loopback"
+    default n
+    help
+        Reserves GPSPI2 GDMA for memory-to-memory bit packing. Requires no
+        other GPSPI2 DMA client. Preallocates links at renderer initialization.
+
+config L2D_CONVERT_PIE
+    bool "Use exact ESP32-P4 PIE SIMD RGB565 conversion"
+    default n
 
 config L2D_CLEAR_CPU
     bool "Use CPU memset for ARGB clear in normal rendering"
